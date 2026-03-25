@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   registerAppResource,
+  registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
@@ -199,13 +200,14 @@ function createServer(): McpServer {
     },
   );
 
-  // Register the get_form_fields tool - returns self-contained HTML with embedded schema
-  server.registerTool(
+  // Register the get_form_fields tool WITH MCP UI link
+  registerAppTool(
+    server,
     "get_form_fields",
     {
       title: "Get Form Fields",
       description:
-        "Fetch the form schema for a ServiceNow table and return a complete HTML form. Render the returned HTML directly in the visualizer.",
+        "Fetch the form schema for a ServiceNow table and display an interactive form.",
       inputSchema: {
         table: z
           .string()
@@ -213,6 +215,7 @@ function createServer(): McpServer {
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
       },
+      _meta: { ui: { resourceUri: formResourceUri } },
     },
     async ({ table }) => {
       try {
@@ -221,8 +224,8 @@ function createServer(): McpServer {
           return {
             content: [
               {
-                type: "text" as const,
-                text: "Not authenticated. Please run the OAuth flow first.",
+                type: "text",
+                text: JSON.stringify({ error: "Not authenticated" }),
               },
             ],
             isError: true,
@@ -230,30 +233,13 @@ function createServer(): McpServer {
         }
 
         const schema = await getFormFields(table, token);
-
-        // Read HTML template and inject schema for self-contained form
-        const htmlPath = path.join(__dirname, "ui", "form.html");
-        const htmlTemplate = await fs.readFile(htmlPath, "utf-8");
-        const htmlWithSchema = htmlTemplate.replace(
-          "</head>",
-          `<script>window.FORM_SCHEMA = ${JSON.stringify(schema)};</script>\n</head>`,
-        );
-
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: htmlWithSchema,
-            },
-          ],
+          content: [{ type: "text", text: JSON.stringify(schema) }],
         };
       } catch (error) {
         return {
           content: [
-            {
-              type: "text" as const,
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
+            { type: "text", text: JSON.stringify({ error: String(error) }) },
           ],
           isError: true,
         };
