@@ -65,6 +65,7 @@ export interface FormSchema {
     rawRowCount: number;
     filteredRowCount: number;
     queryUrl: string;
+    sampleRow?: Record<string, unknown> | null;
   };
 }
 
@@ -206,6 +207,7 @@ export async function getFormFields(
       rawRowCount: dictData.result?.length || 0,
       filteredRowCount: dictRows.length,
       queryUrl: `${dictUrl}?${dictParams}`,
+      sampleRow: dictRows[0] || null,
     },
   };
 }

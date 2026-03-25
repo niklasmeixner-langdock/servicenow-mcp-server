@@ -3,7 +3,15 @@
 import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  registerAppTool,
+  registerAppResource,
+  RESOURCE_MIME_TYPE,
+} from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   getAuthToken,
   ensureAuthenticated,
@@ -12,6 +20,8 @@ import {
   isAuthenticated,
 } from "./auth.js";
 import { submitForm, getFormFields } from "./client.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
@@ -52,8 +62,8 @@ app.post("/mcp", async (req: Request, res: Response) => {
       version: "1.0.0",
     });
 
-    // Register tools
-    registerTools(server);
+    // Register tools and UI resources
+    await registerTools(server);
 
     // Create transport
     const transport = new StreamableHTTPServerTransport({
@@ -118,8 +128,27 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-function registerTools(server: McpServer) {
-  // Register the submit_form tool
+async function registerTools(server: McpServer) {
+  const formResourceUri = "ui://servicenow/form";
+
+  // Register the UI resource for forms
+  registerAppResource(
+    server,
+    formResourceUri,
+    formResourceUri,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => {
+      const htmlPath = path.join(__dirname, "ui", "form.html");
+      const html = await fs.readFile(htmlPath, "utf-8");
+      return {
+        contents: [
+          { uri: formResourceUri, mimeType: RESOURCE_MIME_TYPE, text: html },
+        ],
+      };
+    },
+  );
+
+  // Register the submit_form tool (no UI needed)
   server.registerTool(
     "submit_form",
     {
@@ -182,19 +211,25 @@ function registerTools(server: McpServer) {
     },
   );
 
-  // Register the get_form_fields tool
-  server.registerTool(
+  // Register the get_form_fields tool with UI resource
+  registerAppTool(
+    server,
     "get_form_fields",
     {
       title: "Get Form Fields",
       description:
-        "Fetch the form schema for a ServiceNow table. Returns field definitions including types, labels, required status, and choice options. Use this to understand what fields are available before submitting a form.",
+        "Fetch the form schema for a ServiceNow table. Returns field definitions including types, labels, required status, and choice options. Displays an interactive form UI.",
       inputSchema: {
         table: z
           .string()
           .describe(
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
+      },
+      _meta: {
+        ui: {
+          resourceUri: formResourceUri,
+        },
       },
     },
     async ({ table }) => {
