@@ -4,6 +4,7 @@ import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
+  registerAppTool,
   registerAppResource,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
@@ -210,19 +211,23 @@ async function registerTools(server: McpServer) {
     },
   );
 
-  // Register the get_form_fields tool - returns self-contained HTML with embedded schema
-  server.registerTool(
+  // Register the get_form_fields tool with MCP UI - opens form instantly
+  registerAppTool(
+    server,
     "get_form_fields",
     {
       title: "Get Form Fields",
       description:
-        "Fetch the form schema for a ServiceNow table and return a complete HTML form. The HTML is self-contained and can be rendered directly in Claude's Visualizer. Returns an interactive form UI.",
+        "Fetch the form schema for a ServiceNow table and display an interactive form UI. The form renders instantly without LLM involvement.",
       inputSchema: {
         table: z
           .string()
           .describe(
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
+      },
+      _meta: {
+        ui: { resourceUri: formResourceUri },
       },
     },
     async ({ table }) => {
@@ -233,7 +238,9 @@ async function registerTools(server: McpServer) {
             content: [
               {
                 type: "text" as const,
-                text: "Not authenticated. Please run the OAuth flow first.",
+                text: JSON.stringify({
+                  error: "Not authenticated. Please run the OAuth flow first.",
+                }),
               },
             ],
             isError: true,
@@ -242,21 +249,12 @@ async function registerTools(server: McpServer) {
 
         const schema = await getFormFields(table, token);
 
-        // Read the HTML template and inject the schema
-        const htmlPath = path.join(__dirname, "ui", "form.html");
-        const htmlTemplate = await fs.readFile(htmlPath, "utf-8");
-
-        // Inject schema data into the HTML so it's self-contained
-        const htmlWithData = htmlTemplate.replace(
-          "</head>",
-          `<script>window.FORM_SCHEMA = ${JSON.stringify(schema)};</script>\n</head>`,
-        );
-
+        // Return the schema as JSON - MCP UI will pass this to form.html
         return {
           content: [
             {
               type: "text" as const,
-              text: htmlWithData,
+              text: JSON.stringify(schema),
             },
           ],
         };
@@ -265,7 +263,9 @@ async function registerTools(server: McpServer) {
           content: [
             {
               type: "text" as const,
-              text: `Error fetching form fields: ${error instanceof Error ? error.message : String(error)}`,
+              text: JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
             },
           ],
           isError: true,
