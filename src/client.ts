@@ -61,6 +61,11 @@ export interface FormField {
 export interface FormSchema {
   table: string;
   fields: FormField[];
+  _debug?: {
+    rawRowCount: number;
+    filteredRowCount: number;
+    queryUrl: string;
+  };
 }
 
 function classifyInputType(internalType: string): FormField["inputType"] {
@@ -195,5 +200,13 @@ export async function getFormFields(
     })
     .sort((a: FormField, b: FormField) => a.label.localeCompare(b.label));
 
-  return { table, fields };
+  return {
+    table,
+    fields,
+    _debug: {
+      rawRowCount: dictData.result?.length || 0,
+      filteredRowCount: dictRows.length,
+      queryUrl: `${dictUrl}?${dictParams}`,
+    },
+  };
 }
