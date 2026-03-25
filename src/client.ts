@@ -88,12 +88,12 @@ export async function getFormFields(
     Accept: "application/json",
   };
 
-  // Fetch field definitions from sys_dictionary
+  // Fetch field definitions from sys_dictionary (matching Langdock's approach)
   const dictUrl = `${instanceUrl}/api/now/table/sys_dictionary`;
   const dictParams = new URLSearchParams({
-    sysparm_query: `name=${table}^elementISNOTEMPTY^elementNOT LIKEsys_`,
+    sysparm_query: `nameIN${table}^elementISNOTEMPTY`,
     sysparm_fields:
-      "element,column_label,mandatory,internal_type,reference,max_length,default_value,read_only,choice",
+      "element,column_label,mandatory,internal_type,reference,max_length,default_value,read_only,choice,name",
     sysparm_limit: "200",
   });
 
@@ -103,16 +103,30 @@ export async function getFormFields(
   });
 
   if (!dictResponse.ok) {
-    throw new Error(`Failed to fetch form fields: ${dictResponse.status}`);
+    const errorText = await dictResponse.text();
+    throw new Error(
+      `Failed to fetch form fields (${dictResponse.status}): ${errorText}`,
+    );
   }
 
   const dictData = await dictResponse.json();
-  const dictRows = dictData.result || [];
+  const dictRows = (dictData.result || []).filter(
+    (r: Record<string, unknown>) => !String(r.element || "").startsWith("sys_"),
+  );
+
+  // Helper to get internal_type value (can be string or object with value property)
+  const getInternalType = (val: unknown): string => {
+    if (!val) return "";
+    if (typeof val === "object" && val !== null && "value" in val) {
+      return String((val as { value: unknown }).value || "");
+    }
+    return String(val);
+  };
 
   // Collect choice fields
   const choiceFields = dictRows
     .filter((r: Record<string, unknown>) => {
-      const t = String(r.internal_type || "").toLowerCase();
+      const t = getInternalType(r.internal_type).toLowerCase();
       return (
         t === "choice" ||
         t === "int_choice" ||
@@ -159,7 +173,7 @@ export async function getFormFields(
   const fields: FormField[] = dictRows
     .filter((r: Record<string, unknown>) => !r.read_only)
     .map((r: Record<string, unknown>) => {
-      const internalType = String(r.internal_type || "string");
+      const internalType = getInternalType(r.internal_type) || "string";
       const inputType = classifyInputType(internalType);
       const field: FormField = {
         name: String(r.element),
