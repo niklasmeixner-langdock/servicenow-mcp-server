@@ -4,7 +4,13 @@ import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { getAuthToken, ensureAuthenticated } from "./auth.js";
+import {
+  getAuthToken,
+  ensureAuthenticated,
+  getAuthUrl,
+  handleCallback,
+  isAuthenticated,
+} from "./auth.js";
 import { submitForm, getFormFields } from "./client.js";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -68,7 +74,48 @@ app.post("/mcp", async (req: Request, res: Response) => {
 
 // Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", authenticated: isAuthenticated() });
+});
+
+// OAuth: Start authentication
+app.get("/auth", (req, res) => {
+  try {
+    const authUrl = getAuthUrl();
+    res.redirect(authUrl);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to start auth",
+    });
+  }
+});
+
+// OAuth: Callback from ServiceNow
+app.get("/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    res.status(400).send(`<h1>Authorization Failed</h1><p>${error}</p>`);
+    return;
+  }
+
+  if (!code || !state) {
+    res.status(400).send("<h1>Missing code or state parameter</h1>");
+    return;
+  }
+
+  try {
+    await handleCallback(code as string, state as string);
+    res.send(`
+      <html>
+        <body style="font-family: system-ui; padding: 40px; text-align: center;">
+          <h1>Successfully authenticated with ServiceNow</h1>
+          <p>You can now use the MCP server.</p>
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).send(`<h1>Authentication Error</h1><p>${err}</p>`);
+  }
 });
 
 function registerTools(server: McpServer) {
