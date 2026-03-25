@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import express, { Request, Response } from "express";
+import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -9,9 +9,11 @@ import {
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
+import cors from "cors";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Request, Response } from "express";
 import {
   getAuthToken,
   ensureAuthenticated,
@@ -25,59 +27,41 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-const app = express();
+// Use official MCP Express app (handles body parsing correctly)
+const app = createMcpExpressApp({ host: "0.0.0.0" });
+app.use(cors());
 
-// CORS headers for MCP clients
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, mcp-session-id",
-  );
-  res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-  next();
-});
-
-// MCP endpoint
-app.post("/mcp", async (req: Request, res: Response) => {
+// MCP endpoint (handles all methods per official pattern)
+app.all("/mcp", async (req: Request, res: Response) => {
   try {
     // Ensure authenticated before handling request
     await ensureAuthenticated();
 
-    // Parse body manually (MCP transport needs raw control)
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(chunk as Buffer);
-    }
-    const body = Buffer.concat(chunks).toString();
-    const parsedBody = body ? JSON.parse(body) : {};
-
     // Create MCP server instance
-    const server = new McpServer({
-      name: "servicenow-mcp-server",
-      version: "1.0.0",
-    });
-
-    // Register tools and UI resources
-    await registerTools(server);
+    const server = createServer();
 
     // Create transport
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
 
+    res.on("close", () => {
+      transport.close().catch(() => {});
+      server.close().catch(() => {});
+    });
+
     await server.connect(transport);
 
-    // Handle the request
-    await transport.handleRequest(req, res, parsedBody);
+    // Handle the request (body already parsed by createMcpExpressApp)
+    await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error("MCP error:", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Internal Server Error" });
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Internal server error" },
+        id: null,
+      });
     }
   }
 });
@@ -128,7 +112,12 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-async function registerTools(server: McpServer) {
+function createServer(): McpServer {
+  const server = new McpServer({
+    name: "servicenow-mcp-server",
+    version: "1.0.0",
+  });
+
   const formResourceUri = "ui://servicenow/form";
 
   // Register the UI resource for forms (name = URI per official pattern)
@@ -271,6 +260,8 @@ async function registerTools(server: McpServer) {
       }
     },
   );
+
+  return server;
 }
 
 app.listen(PORT, () => {
