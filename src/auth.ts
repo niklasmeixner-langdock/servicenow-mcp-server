@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 
 // ServiceNow OAuth configuration
-const CLIENT_ID = "8f28e9ff-0dfa-42a2-8cc5-33e8b76de0c0";
+const CLIENT_ID = "42093b633ebb424abb79ee9a89aed6f3";
 const SCOPE = "useraccount";
 
 interface TokenData {
