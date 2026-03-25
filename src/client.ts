@@ -174,9 +174,8 @@ export async function getFormFields(
     }
   }
 
-  // Build form schema
+  // Build form schema (include all fields, mark read_only ones)
   const fields: FormField[] = dictRows
-    .filter((r: Record<string, unknown>) => !r.read_only)
     .map((r: Record<string, unknown>) => {
       const internalType = getInternalType(r.internal_type) || "string";
       const inputType = classifyInputType(internalType);
