@@ -213,7 +213,14 @@
       let currentTable = "";
       let formFields = [];
 
-      // Handle incoming tool results (when host passes data after tool call)
+      // Check for embedded schema (self-contained mode for Claude Visualizer)
+      if (window.FORM_SCHEMA) {
+        currentTable = window.FORM_SCHEMA.table;
+        formFields = window.FORM_SCHEMA.fields;
+        renderForm(window.FORM_SCHEMA);
+      }
+
+      // Handle incoming tool results (fallback for MCP app mode)
       app.ontoolresult = (result) => {
         try {
           const textContent = result.content?.find(
