@@ -134,9 +134,12 @@ async function registerTools(server: McpServer) {
   // Register the UI resource for forms
   registerAppResource(
     server,
+    "ServiceNow Form",
     formResourceUri,
-    formResourceUri,
-    { mimeType: RESOURCE_MIME_TYPE },
+    {
+      mimeType: RESOURCE_MIME_TYPE,
+      description: "Interactive form for ServiceNow records",
+    },
     async () => {
       const htmlPath = path.join(__dirname, "ui", "form.html");
       const html = await fs.readFile(htmlPath, "utf-8");
