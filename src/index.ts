@@ -214,9 +214,8 @@ async function registerTools(server: McpServer) {
     },
   );
 
-  // Register the get_form_fields tool with MCP UI - opens form instantly
-  registerAppTool(
-    server,
+  // Register the get_form_fields tool with MCP UI metadata
+  server.registerTool(
     "get_form_fields",
     {
       title: "Get Form Fields",
@@ -228,9 +227,6 @@ async function registerTools(server: McpServer) {
           .describe(
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
-      },
-      _meta: {
-        ui: { resourceUri: formResourceUri },
       },
     },
     async ({ table }) => {
