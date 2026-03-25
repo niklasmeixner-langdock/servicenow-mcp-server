@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   registerAppResource,
+  registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
@@ -130,15 +131,12 @@ app.get("/callback", async (req, res) => {
 async function registerTools(server: McpServer) {
   const formResourceUri = "ui://servicenow/form";
 
-  // Register the UI resource for forms
+  // Register the UI resource for forms (name = URI per official pattern)
   registerAppResource(
     server,
-    "ServiceNow Form",
     formResourceUri,
-    {
-      mimeType: RESOURCE_MIME_TYPE,
-      description: "Interactive form for ServiceNow records",
-    },
+    formResourceUri,
+    { mimeType: RESOURCE_MIME_TYPE },
     async () => {
       const htmlPath = path.join(__dirname, "ui", "form.html");
       const html = await fs.readFile(htmlPath, "utf-8");
@@ -213,13 +211,14 @@ async function registerTools(server: McpServer) {
     },
   );
 
-  // Register the get_form_fields tool with MCP UI metadata
-  server.registerTool(
+  // Register the get_form_fields tool with UI metadata linking to form resource
+  registerAppTool(
+    server,
     "get_form_fields",
     {
       title: "Get Form Fields",
       description:
-        "Fetch the form schema for a ServiceNow table and display an interactive form UI. The form renders instantly without LLM involvement.",
+        "Fetch the form schema for a ServiceNow table and display an interactive form UI.",
       inputSchema: {
         table: z
           .string()
@@ -227,6 +226,7 @@ async function registerTools(server: McpServer) {
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
       },
+      _meta: { ui: { resourceUri: formResourceUri } }, // Links this tool to its UI resource
     },
     async ({ table }) => {
       try {
