@@ -102,11 +102,8 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     authUrl.searchParams.set("client_id", clientId);
     authUrl.searchParams.set("redirect_uri", `${baseUrl}/oauth/callback`);
     authUrl.searchParams.set("state", sessionId);
-    if (params.scopes?.length) {
-      authUrl.searchParams.set("scope", params.scopes.join(" "));
-    }
-    // Note: Not passing PKCE to ServiceNow - older ServiceNow versions don't support it
-    // PKCE is handled between MCP client and this server
+    // Note: Not passing scope or PKCE to ServiceNow - it handles these internally
+    // based on the OAuth app configuration
 
     console.log(`[OAuth] ServiceNow client_id: ${clientId}`);
     console.log(`[OAuth] ServiceNow instance: ${instanceUrl}`);
