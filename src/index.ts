@@ -78,21 +78,8 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Install MCP auth router at root for OAuth DCR support
-// This exposes: /.well-known/oauth-authorization-server, /register, /authorize, /token
+// Handle /authorize directly BEFORE the SDK router
 const baseUrl = getBaseUrl();
-console.log(`[OAuth] Setting up auth router with baseUrl: ${baseUrl}`);
-const authRouter = mcpAuthRouter({
-  provider: oauthProvider,
-  issuerUrl: new URL(baseUrl),
-  baseUrl: new URL(baseUrl),
-  scopesSupported: ["useraccount"],
-  resourceName: "ServiceNow MCP Server",
-});
-console.log(`[OAuth] Auth router created successfully`);
-app.use("/", authRouter);
-
-// Handle /authorize directly to avoid SDK's redirect_uri validation issues
 app.get("/authorize", (req: Request, res: Response) => {
   const { client_id, redirect_uri, state, code_challenge } = req.query;
 
@@ -127,6 +114,16 @@ app.get("/authorize", (req: Request, res: Response) => {
   console.log("[OAuth] Redirecting to ServiceNow:", authUrl.toString());
   res.redirect(authUrl.toString());
 });
+
+// Install MCP auth router for /.well-known, /register, /token (but NOT /authorize - we handle that above)
+const authRouter = mcpAuthRouter({
+  provider: oauthProvider,
+  issuerUrl: new URL(baseUrl),
+  baseUrl: new URL(baseUrl),
+  scopesSupported: ["useraccount"],
+  resourceName: "ServiceNow MCP Server",
+});
+app.use("/", authRouter);
 
 // Test route to verify Express routing works
 app.get("/test-routes", (_req, res) => {
