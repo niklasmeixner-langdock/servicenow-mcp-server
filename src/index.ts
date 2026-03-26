@@ -169,6 +169,65 @@ function createServer(): McpServer {
     },
   );
 
+  // submit_form: Submits data to ServiceNow (used by form UI or directly by LLM)
+  server.registerTool(
+    "submit_form",
+    {
+      title: "Submit Form",
+      description:
+        "Submit a record to a ServiceNow table. Can be called directly with data, or used internally by the form UI.",
+      inputSchema: {
+        table: z.string().describe("The ServiceNow table name"),
+        data: z
+          .record(z.string(), z.unknown())
+          .describe("The form data to submit"),
+      },
+    },
+    async ({ table, data }) => {
+      try {
+        const token = await getAuthToken();
+        if (!token) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({ error: "Not authenticated" }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const result = await submitForm(
+          table,
+          data as Record<string, unknown>,
+          token,
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // get_form_fields: Returns field schema only (no UI) - useful for LLM context
   server.registerTool(
     "get_form_fields",
@@ -223,12 +282,12 @@ function createServer(): McpServer {
     },
   );
 
-  // submit_form: Shows interactive UI form and submits to ServiceNow
+  // render_form: Shows interactive UI form for creating records
   registerAppTool(
     server,
-    "submit_form",
+    "render_form",
     {
-      title: "Submit Form",
+      title: "Render Form",
       description:
         "Display an interactive form to create a record in a ServiceNow table. Use the prefill parameter to pre-populate form fields with data extracted from the conversation context.",
       inputSchema: {
