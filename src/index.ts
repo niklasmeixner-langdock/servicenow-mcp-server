@@ -78,7 +78,12 @@ const authRouter = mcpAuthRouter({
   resourceName: "ServiceNow MCP Server",
 });
 console.log(`[OAuth] Auth router created successfully`);
-app.use(authRouter);
+app.use("/", authRouter);
+
+// Test route to verify Express routing works
+app.get("/test-routes", (_req, res) => {
+  res.json({ status: "ok", message: "Express routing works" });
+});
 
 // OAuth callback from ServiceNow - redirects back to the MCP client
 app.get("/oauth/callback", (req: Request, res: Response) => {
@@ -316,20 +321,11 @@ function createServer(token: string | null): McpServer {
   return server;
 }
 
-// Log registered routes for debugging
-function printRoutes(router: any, prefix = "") {
-  router.stack?.forEach((layer: any) => {
-    if (layer.route) {
-      const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
-      console.log(`[Route] ${methods} ${prefix}${layer.route.path}`);
-    } else if (layer.name === "router") {
-      printRoutes(layer.handle, prefix + (layer.regexp.source === "^\\/?$" ? "" : layer.regexp.source.replace("\\/?", "").replace("(?=\\/|$)", "")));
-    }
-  });
-}
-
 app.listen(PORT, () => {
   console.log(`ServiceNow MCP Server running on port ${PORT}`);
-  console.log(`[Routes] Registered routes:`);
-  printRoutes(app._router);
+  console.log(`[OAuth] Auth routes should be available at:`);
+  console.log(`  - GET /.well-known/oauth-authorization-server`);
+  console.log(`  - POST /register`);
+  console.log(`  - GET /authorize`);
+  console.log(`  - POST /token`);
 });
