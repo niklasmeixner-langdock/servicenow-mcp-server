@@ -1,8 +1,15 @@
 import * as crypto from "crypto";
 import { getInstanceUrl, getBaseUrl } from "./utils.js";
 
-// ServiceNow OAuth configuration
-const CLIENT_ID = "42093b633ebb424abb79ee9a89aed6f3";
+// ServiceNow OAuth configuration from environment
+function getClientId(): string {
+  const clientId = process.env.SERVICENOW_CLIENT_ID;
+  if (!clientId) {
+    throw new Error("SERVICENOW_CLIENT_ID environment variable is required");
+  }
+  return clientId;
+}
+
 const SCOPE = "useraccount";
 
 interface TokenData {
@@ -50,7 +57,7 @@ export function getAuthUrl(redirectUri?: string): string {
 
   const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", CLIENT_ID);
+  authUrl.searchParams.set("client_id", getClientId());
   authUrl.searchParams.set("redirect_uri", finalRedirectUri);
   authUrl.searchParams.set("scope", SCOPE);
   authUrl.searchParams.set("code_challenge", challenge);
@@ -77,7 +84,7 @@ export async function handleCallback(
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: CLIENT_ID,
+    client_id: getClientId(),
     code,
     redirect_uri: pendingAuth.redirectUri,
     code_verifier: pendingAuth.verifier,
@@ -114,7 +121,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: CLIENT_ID,
+    client_id: getClientId(),
     refresh_token: tokens.refresh_token,
   });
 
