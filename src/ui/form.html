@@ -184,22 +184,30 @@
             // Try to extract render data from various message formats
             let renderData = null;
 
-            // Format 1: { type: "renderData", data: {...} }
-            if (message.type === "renderData" && message.data) {
+            // Format 1: JSON-RPC from mcpJam - { method: "ui/notifications/tool-result", params: { _meta: {...} } }
+            if (
+              message.method === "ui/notifications/tool-result" &&
+              message.params?._meta?.["mcpui.dev/ui-initial-render-data"]
+            ) {
+              renderData =
+                message.params._meta["mcpui.dev/ui-initial-render-data"];
+            }
+            // Format 2: { type: "renderData", data: {...} }
+            else if (message.type === "renderData" && message.data) {
               renderData = message.data;
             }
-            // Format 2: { type: "init", data: {...} } or { type: "initialData", data: {...} }
+            // Format 3: { type: "init", data: {...} } or { type: "initialData", data: {...} }
             else if (
               (message.type === "init" || message.type === "initialData") &&
               message.data
             ) {
               renderData = message.data;
             }
-            // Format 3: Direct data with table/fields (no type wrapper)
+            // Format 4: Direct data with table/fields (no type wrapper)
             else if (message.table && message.fields) {
               renderData = message;
             }
-            // Format 4: { renderData: {...} } without type
+            // Format 5: { renderData: {...} } without type
             else if (message.renderData) {
               renderData = message.renderData;
             }
