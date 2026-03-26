@@ -108,7 +108,8 @@ app.get("/health", (req, res) => {
 app.get("/auth", (req, res) => {
   try {
     const clientId = req.query.client_id as string | undefined;
-    const finalRedirect = req.query.final_redirect as string | undefined;
+    const finalRedirect = (req.query.final_redirect ||
+      req.query.redirect_uri) as string | undefined;
     const authUrl = getAuthUrl(clientId, finalRedirect);
     res.redirect(authUrl);
   } catch (error) {
