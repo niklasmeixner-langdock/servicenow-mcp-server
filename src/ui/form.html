@@ -177,6 +177,15 @@
         connect() {
           window.addEventListener("message", (event) => {
             const message = event.data;
+            // Handle initial render data from MCP Apps host
+            if (
+              message.type === "renderData" &&
+              message.data &&
+              this.onrenderdata
+            ) {
+              this.onrenderdata(message.data);
+            }
+            // Handle tool result (legacy pattern)
             if (message.type === "toolResult" && this.ontoolresult) {
               this.ontoolresult(message.result);
             }
@@ -219,6 +228,19 @@
         formFields = window.FORM_SCHEMA.fields;
         renderForm(window.FORM_SCHEMA);
       }
+
+      // Handle initial render data from MCP Apps host (via _meta)
+      app.onrenderdata = (data) => {
+        try {
+          if (data.table && data.fields) {
+            currentTable = data.table;
+            formFields = data.fields;
+            renderForm(data);
+          }
+        } catch (e) {
+          console.error("Error processing render data:", e);
+        }
+      };
 
       // Handle incoming tool results (fallback for MCP app mode)
       app.ontoolresult = (result) => {

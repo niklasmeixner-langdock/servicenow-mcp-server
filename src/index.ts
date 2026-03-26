@@ -252,6 +252,10 @@ function createServer(): McpServer {
               },
             },
           ],
+          // Pass schema to MCP Apps iframe via _meta
+          _meta: {
+            "mcpui.dev/ui-initial-render-data": schema,
+          },
         };
       } catch (error) {
         return {
