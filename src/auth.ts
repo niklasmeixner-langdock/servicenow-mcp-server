@@ -22,8 +22,12 @@ let pendingAuth: {
   redirectUri: string;
 } | null = null;
 
-function getDefaultRedirectUri(): string {
-  return `${getBaseUrl()}/callback`;
+function getDefaultRedirectUri(): string | null {
+  try {
+    return `${getBaseUrl()}/callback`;
+  } catch {
+    return null;
+  }
 }
 
 export function getAuthUrl(redirectUri?: string): string {
@@ -37,6 +41,11 @@ export function getAuthUrl(redirectUri?: string): string {
 
   // Use provided redirect_uri or fall back to default
   const finalRedirectUri = redirectUri || getDefaultRedirectUri();
+  if (!finalRedirectUri) {
+    throw new Error(
+      "redirect_uri is required (pass it as param or set BASE_URL env)",
+    );
+  }
   pendingAuth = { verifier, state, redirectUri: finalRedirectUri };
 
   const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
