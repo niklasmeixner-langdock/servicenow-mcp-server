@@ -230,8 +230,24 @@ function createServer(): McpServer {
         }
 
         const schema = await getFormFields(table, token);
+
+        // Load UI HTML for legacy hosts that use UIResourceRenderer
+        const htmlPath = path.join(__dirname, "ui", "form.html");
+        const html = await fs.readFile(htmlPath, "utf-8");
+
         return {
-          content: [{ type: "text", text: JSON.stringify(schema) }],
+          content: [
+            { type: "text", text: JSON.stringify(schema) },
+            // Inline resource for legacy hosts (UIResourceRenderer pattern)
+            {
+              type: "resource",
+              resource: {
+                uri: formResourceUri,
+                mimeType: RESOURCE_MIME_TYPE,
+                text: html,
+              },
+            },
+          ],
         };
       } catch (error) {
         return {
