@@ -14,19 +14,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
-import {
-  getAuthToken,
-  getAuthUrl,
-  handleCallback,
-  isAuthenticated,
-} from "./auth.js";
+import { getAuthUrl, getTokenUrl } from "./auth.js";
 import { submitForm, getFormFields } from "./client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-// Cache form HTML at startup to avoid repeated file reads
 let cachedFormHtml: string | null = null;
 
 async function getFormHtml(): Promise<string> {
@@ -37,10 +31,6 @@ async function getFormHtml(): Promise<string> {
   return cachedFormHtml;
 }
 
-/**
- * Safely encode JSON for embedding in HTML script tags.
- * Escapes characters that could break out of script context.
- */
 function safeJsonForHtml(data: unknown): string {
   return JSON.stringify(data)
     .replace(/</g, "\\u003c")
@@ -51,9 +41,6 @@ function safeJsonForHtml(data: unknown): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
-/**
- * Encode data for use in HTML data attributes.
- */
 function encodeForDataAttr(data: unknown): string {
   return JSON.stringify(data)
     .replace(/&/g, "&amp;")
@@ -63,17 +50,19 @@ function encodeForDataAttr(data: unknown): string {
     .replace(/>/g, "&gt;");
 }
 
-// Use official MCP Express app (handles body parsing correctly)
 const app = createMcpExpressApp({ host: "0.0.0.0" });
 app.use(cors());
 
-// MCP endpoint (handles all methods per official pattern)
+// MCP endpoint - token passed via Authorization header
 app.all("/mcp", async (req: Request, res: Response) => {
   try {
-    // Create MCP server instance (auth check happens per-tool, not at connection level)
-    const server = createServer();
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null;
 
-    // Create transport
+    const server = createServer(token);
+
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -84,11 +73,8 @@ app.all("/mcp", async (req: Request, res: Response) => {
     });
 
     await server.connect(transport);
-
-    // Handle the request (body already parsed by createMcpExpressApp)
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
-    console.error("MCP error:", error);
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -100,17 +86,22 @@ app.all("/mcp", async (req: Request, res: Response) => {
 });
 
 // Health check
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", authenticated: isAuthenticated() });
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
 });
 
-// OAuth: Start authentication
+// OAuth: Redirect to ServiceNow authorization
 app.get("/auth", (req, res) => {
   try {
-    const clientId = req.query.client_id as string | undefined;
-    const finalRedirect = (req.query.final_redirect ||
-      req.query.redirect_uri) as string | undefined;
-    const authUrl = getAuthUrl(clientId, finalRedirect);
+    const clientId = req.query.client_id as string;
+    const redirectUri = req.query.redirect_uri as string;
+
+    if (!clientId || !redirectUri) {
+      res.status(400).json({ error: "client_id and redirect_uri required" });
+      return;
+    }
+
+    const authUrl = getAuthUrl(redirectUri, clientId);
     res.redirect(authUrl);
   } catch (error) {
     res.status(500).json({
@@ -119,44 +110,12 @@ app.get("/auth", (req, res) => {
   }
 });
 
-// OAuth: Callback from ServiceNow
-app.get("/callback", async (req, res) => {
-  const { code, state, error } = req.query;
-
-  if (error) {
-    res.status(400).send(`<h1>Authorization Failed</h1><p>${error}</p>`);
-    return;
-  }
-
-  if (!code || !state) {
-    res.status(400).send("<h1>Missing code or state parameter</h1>");
-    return;
-  }
-
-  try {
-    const result = await handleCallback(code as string, state as string);
-    if (result.finalRedirect) {
-      const redirectUrl = new URL(result.finalRedirect);
-      redirectUrl.searchParams.set("access_token", result.accessToken);
-      redirectUrl.searchParams.set("refresh_token", result.refreshToken);
-      redirectUrl.searchParams.set("expires_in", String(result.expiresIn));
-      res.redirect(redirectUrl.toString());
-    } else {
-      res.send(`
-        <html>
-          <body style="font-family: system-ui; padding: 40px; text-align: center;">
-            <h1>Successfully authenticated with ServiceNow</h1>
-            <p>You can now use the MCP server.</p>
-          </body>
-        </html>
-      `);
-    }
-  } catch (err) {
-    res.status(500).send(`<h1>Authentication Error</h1><p>${err}</p>`);
-  }
+// Token endpoint info (for hosts that need it)
+app.get("/token-url", (_req, res) => {
+  res.json({ token_url: getTokenUrl() });
 });
 
-function createServer(): McpServer {
+function createServer(token: string | null): McpServer {
   const server = new McpServer({
     name: "servicenow-mcp-server",
     version: "1.0.0",
@@ -164,7 +123,6 @@ function createServer(): McpServer {
 
   const formResourceUri = "ui://servicenow/form";
 
-  // Register the UI resource for forms (name = URI per official pattern)
   registerAppResource(
     server,
     formResourceUri,
@@ -180,13 +138,11 @@ function createServer(): McpServer {
     },
   );
 
-  // submit_form: Submits data to ServiceNow (used by form UI or directly by LLM)
   server.registerTool(
     "submit_form",
     {
       title: "Submit Form",
-      description:
-        "Submit a record to a ServiceNow table. Can be called directly with data, or used internally by the form UI.",
+      description: "Submit a record to a ServiceNow table.",
       inputSchema: {
         table: z.string().describe("The ServiceNow table name"),
         data: z
@@ -195,32 +151,22 @@ function createServer(): McpServer {
       },
     },
     async ({ table, data }) => {
-      try {
-        const token = await getAuthToken();
-        if (!token) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({ error: "Not authenticated" }),
-              },
-            ],
-            isError: true,
-          };
-        }
+      if (!token) {
+        return {
+          content: [{ type: "text" as const, text: "Not authenticated" }],
+          isError: true,
+        };
+      }
 
+      try {
         const result = await submitForm(
           table,
           data as Record<string, unknown>,
           token,
         );
-
         return {
           content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
+            { type: "text" as const, text: JSON.stringify(result, null, 2) },
           ],
         };
       } catch (error) {
@@ -228,9 +174,7 @@ function createServer(): McpServer {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({
-                error: error instanceof Error ? error.message : String(error),
-              }),
+              text: error instanceof Error ? error.message : String(error),
             },
           ],
           isError: true,
@@ -239,44 +183,28 @@ function createServer(): McpServer {
     },
   );
 
-  // get_form_fields: Returns field schema only (no UI) - useful for LLM context
   server.registerTool(
     "get_form_fields",
     {
       title: "Get Form Fields",
-      description:
-        "Get the available fields for a ServiceNow table. Returns field names, types, and constraints. Use this to understand what data can be submitted to a table.",
+      description: "Get the available fields for a ServiceNow table.",
       inputSchema: {
-        table: z
-          .string()
-          .describe(
-            "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
-          ),
+        table: z.string().describe("The ServiceNow table name"),
       },
     },
     async ({ table }) => {
+      if (!token) {
+        return {
+          content: [{ type: "text" as const, text: "Not authenticated" }],
+          isError: true,
+        };
+      }
+
       try {
-        const token = await getAuthToken();
-        if (!token) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Not authenticated. Please run the OAuth flow first.",
-              },
-            ],
-            isError: true,
-          };
-        }
-
         const schema = await getFormFields(table, token);
-
         return {
           content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(schema, null, 2),
-            },
+            { type: "text" as const, text: JSON.stringify(schema, null, 2) },
           ],
         };
       } catch (error) {
@@ -284,7 +212,7 @@ function createServer(): McpServer {
           content: [
             {
               type: "text" as const,
-              text: `Error fetching form fields: ${error instanceof Error ? error.message : String(error)}`,
+              text: error instanceof Error ? error.message : String(error),
             },
           ],
           isError: true,
@@ -293,73 +221,46 @@ function createServer(): McpServer {
     },
   );
 
-  // render_form: Shows interactive UI form for creating records
   registerAppTool(
     server,
     "render_form",
     {
       title: "Render Form",
-      description:
-        "Display an interactive form to create a record in a ServiceNow table. Use the prefill parameter to pre-populate form fields with data extracted from the conversation context.",
+      description: "Display an interactive form to create a ServiceNow record.",
       inputSchema: {
-        table: z
-          .string()
-          .describe(
-            "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
-          ),
+        table: z.string().describe("The ServiceNow table name"),
         prefill: z
           .record(z.string(), z.string())
           .optional()
-          .describe(
-            "Optional key-value pairs to pre-fill form fields. Keys should match ServiceNow field names (e.g., 'short_description', 'description', 'urgency'). Extract relevant information from the user's message to populate these fields.",
-          ),
+          .describe("Optional key-value pairs to pre-fill form fields"),
       },
       _meta: { ui: { resourceUri: formResourceUri } },
     },
     async ({ table, prefill }) => {
-      try {
-        const token = await getAuthToken();
-        if (!token) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ error: "Not authenticated" }),
-              },
-            ],
-            isError: true,
-          };
-        }
-
-        const schema = await getFormFields(table, token);
-
-        // Combine schema with prefill data for the form
-        const renderData = {
-          ...schema,
-          prefill: prefill || {},
+      if (!token) {
+        return {
+          content: [{ type: "text", text: "Not authenticated" }],
+          isError: true,
         };
+      }
 
-        // Load cached UI HTML
+      try {
+        const schema = await getFormFields(table, token);
+        const renderData = { ...schema, prefill: prefill || {} };
+
         let html = await getFormHtml();
-
-        // Inject schema data using BOTH methods for maximum compatibility:
-        // 1. Inline script (works when CSP allows inline scripts)
-        // 2. Data attribute (works when CSP blocks inline scripts)
         const safeScript = `<script>window.FORM_SCHEMA = ${safeJsonForHtml(renderData)};</script>`;
         const dataAttr = `data-schema="${encodeForDataAttr(renderData)}"`;
 
-        // Add data attribute to form container for CSP-restricted environments
         html = html.replace(
           '<div class="form-container">',
           `<div class="form-container" ${dataAttr}>`,
         );
-        // Also inject inline script for environments that support it
         html = html.replace("</head>", `${safeScript}</head>`);
 
         return {
           content: [
             { type: "text", text: JSON.stringify(renderData) },
-            // Inline resource for legacy hosts (UIResourceRenderer pattern)
             {
               type: "resource",
               resource: {
@@ -369,16 +270,11 @@ function createServer(): McpServer {
               },
             },
           ],
-          // Pass schema + prefill to MCP Apps iframe via _meta
-          _meta: {
-            "mcpui.dev/ui-initial-render-data": renderData,
-          },
+          _meta: { "mcpui.dev/ui-initial-render-data": renderData },
         };
       } catch (error) {
         return {
-          content: [
-            { type: "text", text: JSON.stringify({ error: String(error) }) },
-          ],
+          content: [{ type: "text", text: String(error) }],
           isError: true,
         };
       }
@@ -390,5 +286,4 @@ function createServer(): McpServer {
 
 app.listen(PORT, () => {
   console.log(`ServiceNow MCP Server running on http://localhost:${PORT}`);
-  console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
 });
