@@ -55,11 +55,19 @@ app.use(cors());
 
 // MCP endpoint - Langdock passes token via Authorization header
 app.all("/mcp", async (req: Request, res: Response) => {
+  console.log("=== MCP Request ===");
+  console.log("Method:", req.method);
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  console.log("===================");
+
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
+    console.log("Token present:", !!token);
+
     const server = createServer(token);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -72,7 +80,11 @@ app.all("/mcp", async (req: Request, res: Response) => {
 
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
-  } catch {
+    console.log("=== MCP Request completed successfully ===");
+  } catch (error) {
+    console.error("=== MCP Error ===");
+    console.error("Error:", error);
+    console.error("=================");
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
