@@ -14,19 +14,20 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
-import { getAuthUrl, getTokenUrl } from "./auth.js";
+import { getAuthUrl, handleCallback } from "./auth.js";
 import { submitForm, getFormFields } from "./client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
 let cachedFormHtml: string | null = null;
 
 async function getFormHtml(): Promise<string> {
   if (!cachedFormHtml) {
-    const htmlPath = path.join(__dirname, "ui", "form.html");
-    cachedFormHtml = await fs.readFile(htmlPath, "utf-8");
+    cachedFormHtml = await fs.readFile(
+      path.join(__dirname, "ui", "form.html"),
+      "utf-8",
+    );
   }
   return cachedFormHtml;
 }
@@ -53,16 +54,13 @@ function encodeForDataAttr(data: unknown): string {
 const app = createMcpExpressApp({ host: "0.0.0.0" });
 app.use(cors());
 
-// MCP endpoint - token passed via Authorization header
 app.all("/mcp", async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
-
     const server = createServer(token);
-
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -74,46 +72,62 @@ app.all("/mcp", async (req: Request, res: Response) => {
 
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
-  } catch (error) {
+  } catch {
     if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: "Internal server error" },
-        id: null,
-      });
+      res
+        .status(500)
+        .json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "Internal error" },
+          id: null,
+        });
     }
   }
 });
 
-// Health check
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
+app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-// OAuth: Redirect to ServiceNow authorization
 app.get("/auth", (req, res) => {
   try {
     const clientId = req.query.client_id as string;
     const redirectUri = req.query.redirect_uri as string;
-    const state = req.query.state as string | undefined;
 
     if (!clientId || !redirectUri) {
       res.status(400).json({ error: "client_id and redirect_uri required" });
       return;
     }
 
-    const authUrl = getAuthUrl(redirectUri, clientId, state);
-    res.redirect(authUrl);
+    res.redirect(getAuthUrl(clientId, redirectUri));
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to start auth",
-    });
+    res
+      .status(500)
+      .json({ error: error instanceof Error ? error.message : "Auth failed" });
   }
 });
 
-// Token endpoint info (for hosts that need it)
-app.get("/token-url", (_req, res) => {
-  res.json({ token_url: getTokenUrl() });
+app.get("/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    res.status(400).send(`Authorization failed: ${error}`);
+    return;
+  }
+
+  if (!code || !state) {
+    res.status(400).send("Missing code or state");
+    return;
+  }
+
+  try {
+    const result = await handleCallback(code as string, state as string);
+    const url = new URL(result.finalRedirect);
+    url.searchParams.set("access_token", result.accessToken);
+    url.searchParams.set("refresh_token", result.refreshToken);
+    url.searchParams.set("expires_in", String(result.expiresIn));
+    res.redirect(url.toString());
+  } catch (err) {
+    res.status(500).send(`Token exchange failed: ${err}`);
+  }
 });
 
 function createServer(token: string | null): McpServer {
@@ -121,7 +135,6 @@ function createServer(token: string | null): McpServer {
     name: "servicenow-mcp-server",
     version: "1.0.0",
   });
-
   const formResourceUri = "ui://servicenow/form";
 
   registerAppResource(
@@ -129,14 +142,15 @@ function createServer(token: string | null): McpServer {
     formResourceUri,
     formResourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
-    async () => {
-      const html = await getFormHtml();
-      return {
-        contents: [
-          { uri: formResourceUri, mimeType: RESOURCE_MIME_TYPE, text: html },
-        ],
-      };
-    },
+    async () => ({
+      contents: [
+        {
+          uri: formResourceUri,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await getFormHtml(),
+        },
+      ],
+    }),
   );
 
   server.registerTool(
@@ -152,13 +166,11 @@ function createServer(token: string | null): McpServer {
       },
     },
     async ({ table, data }) => {
-      if (!token) {
+      if (!token)
         return {
           content: [{ type: "text" as const, text: "Not authenticated" }],
           isError: true,
         };
-      }
-
       try {
         const result = await submitForm(
           table,
@@ -172,12 +184,7 @@ function createServer(token: string | null): McpServer {
         };
       } catch (error) {
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: error instanceof Error ? error.message : String(error),
-            },
-          ],
+          content: [{ type: "text" as const, text: String(error) }],
           isError: true,
         };
       }
@@ -189,18 +196,14 @@ function createServer(token: string | null): McpServer {
     {
       title: "Get Form Fields",
       description: "Get the available fields for a ServiceNow table.",
-      inputSchema: {
-        table: z.string().describe("The ServiceNow table name"),
-      },
+      inputSchema: { table: z.string().describe("The ServiceNow table name") },
     },
     async ({ table }) => {
-      if (!token) {
+      if (!token)
         return {
           content: [{ type: "text" as const, text: "Not authenticated" }],
           isError: true,
         };
-      }
-
       try {
         const schema = await getFormFields(table, token);
         return {
@@ -210,12 +213,7 @@ function createServer(token: string | null): McpServer {
         };
       } catch (error) {
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: error instanceof Error ? error.message : String(error),
-            },
-          ],
+          content: [{ type: "text" as const, text: String(error) }],
           isError: true,
         };
       }
@@ -233,32 +231,28 @@ function createServer(token: string | null): McpServer {
         prefill: z
           .record(z.string(), z.string())
           .optional()
-          .describe("Optional key-value pairs to pre-fill form fields"),
+          .describe("Optional key-value pairs to pre-fill"),
       },
       _meta: { ui: { resourceUri: formResourceUri } },
     },
     async ({ table, prefill }) => {
-      if (!token) {
+      if (!token)
         return {
           content: [{ type: "text", text: "Not authenticated" }],
           isError: true,
         };
-      }
-
       try {
         const schema = await getFormFields(table, token);
         const renderData = { ...schema, prefill: prefill || {} };
-
         let html = await getFormHtml();
-        const safeScript = `<script>window.FORM_SCHEMA = ${safeJsonForHtml(renderData)};</script>`;
-        const dataAttr = `data-schema="${encodeForDataAttr(renderData)}"`;
-
         html = html.replace(
           '<div class="form-container">',
-          `<div class="form-container" ${dataAttr}>`,
+          `<div class="form-container" data-schema="${encodeForDataAttr(renderData)}">`,
         );
-        html = html.replace("</head>", `${safeScript}</head>`);
-
+        html = html.replace(
+          "</head>",
+          `<script>window.FORM_SCHEMA = ${safeJsonForHtml(renderData)};</script></head>`,
+        );
         return {
           content: [
             { type: "text", text: JSON.stringify(renderData) },
@@ -285,6 +279,6 @@ function createServer(token: string | null): McpServer {
   return server;
 }
 
-app.listen(PORT, () => {
-  console.log(`ServiceNow MCP Server running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`ServiceNow MCP Server running on port ${PORT}`),
+);
