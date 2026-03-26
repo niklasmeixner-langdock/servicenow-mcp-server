@@ -16,13 +16,17 @@ interface TokenData {
 let tokens: TokenData | null = null;
 
 // PKCE state for pending auth flows
-let pendingAuth: { verifier: string; state: string } | null = null;
+let pendingAuth: {
+  verifier: string;
+  state: string;
+  redirectUri: string;
+} | null = null;
 
-function getRedirectUri(): string {
+function getDefaultRedirectUri(): string {
   return `${getBaseUrl()}/callback`;
 }
 
-export function getAuthUrl(): string {
+export function getAuthUrl(redirectUri?: string): string {
   const instanceUrl = getInstanceUrl();
   const verifier = crypto.randomBytes(32).toString("base64url");
   const challenge = crypto
@@ -31,18 +35,24 @@ export function getAuthUrl(): string {
     .digest("base64url");
   const state = crypto.randomBytes(16).toString("hex");
 
-  pendingAuth = { verifier, state };
+  // Use provided redirect_uri or fall back to default
+  const finalRedirectUri = redirectUri || getDefaultRedirectUri();
+  pendingAuth = { verifier, state, redirectUri: finalRedirectUri };
 
   const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", CLIENT_ID);
-  authUrl.searchParams.set("redirect_uri", getRedirectUri());
+  authUrl.searchParams.set("redirect_uri", finalRedirectUri);
   authUrl.searchParams.set("scope", SCOPE);
   authUrl.searchParams.set("code_challenge", challenge);
   authUrl.searchParams.set("code_challenge_method", "S256");
   authUrl.searchParams.set("state", state);
 
   return authUrl.toString();
+}
+
+export function getPendingRedirectUri(): string | null {
+  return pendingAuth?.redirectUri || null;
 }
 
 export async function handleCallback(
@@ -60,7 +70,7 @@ export async function handleCallback(
     grant_type: "authorization_code",
     client_id: CLIENT_ID,
     code,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: pendingAuth.redirectUri,
     code_verifier: pendingAuth.verifier,
   });
 

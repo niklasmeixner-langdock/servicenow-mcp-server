@@ -107,7 +107,8 @@ app.get("/health", (req, res) => {
 // OAuth: Start authentication
 app.get("/auth", (req, res) => {
   try {
-    const authUrl = getAuthUrl();
+    const redirectUri = req.query.redirect_uri as string | undefined;
+    const authUrl = getAuthUrl(redirectUri);
     res.redirect(authUrl);
   } catch (error) {
     res.status(500).json({
