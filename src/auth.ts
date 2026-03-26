@@ -1,15 +1,6 @@
 import * as crypto from "crypto";
 import { getInstanceUrl, getBaseUrl } from "./utils.js";
 
-// ServiceNow OAuth configuration from environment
-function getClientId(): string {
-  const clientId = process.env.SERVICENOW_CLIENT_ID;
-  if (!clientId) {
-    throw new Error("SERVICENOW_CLIENT_ID environment variable is required");
-  }
-  return clientId;
-}
-
 const SCOPE = "useraccount";
 
 interface TokenData {
@@ -17,6 +8,7 @@ interface TokenData {
   refresh_token: string;
   expires_at: number;
   instance: string;
+  clientId: string;
 }
 
 // In-memory token storage
@@ -27,6 +19,7 @@ let pendingAuth: {
   verifier: string;
   state: string;
   redirectUri: string;
+  clientId: string;
 } | null = null;
 
 function getDefaultRedirectUri(): string | null {
@@ -37,7 +30,7 @@ function getDefaultRedirectUri(): string | null {
   }
 }
 
-export function getAuthUrl(redirectUri?: string): string {
+export function getAuthUrl(redirectUri?: string, clientId?: string): string {
   const instanceUrl = getInstanceUrl();
   const verifier = crypto.randomBytes(32).toString("base64url");
   const challenge = crypto
@@ -46,18 +39,26 @@ export function getAuthUrl(redirectUri?: string): string {
     .digest("base64url");
   const state = crypto.randomBytes(16).toString("hex");
 
-  // Use provided redirect_uri or fall back to default
   const finalRedirectUri = redirectUri || getDefaultRedirectUri();
   if (!finalRedirectUri) {
-    throw new Error(
-      "redirect_uri is required (pass it as param or set BASE_URL env)",
-    );
+    throw new Error("redirect_uri is required");
   }
-  pendingAuth = { verifier, state, redirectUri: finalRedirectUri };
+
+  const finalClientId = clientId || process.env.SERVICENOW_CLIENT_ID;
+  if (!finalClientId) {
+    throw new Error("client_id is required");
+  }
+
+  pendingAuth = {
+    verifier,
+    state,
+    redirectUri: finalRedirectUri,
+    clientId: finalClientId,
+  };
 
   const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", getClientId());
+  authUrl.searchParams.set("client_id", finalClientId);
   authUrl.searchParams.set("redirect_uri", finalRedirectUri);
   authUrl.searchParams.set("scope", SCOPE);
   authUrl.searchParams.set("code_challenge", challenge);
@@ -84,7 +85,7 @@ export async function handleCallback(
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: getClientId(),
+    client_id: pendingAuth.clientId,
     code,
     redirect_uri: pendingAuth.redirectUri,
     code_verifier: pendingAuth.verifier,
@@ -107,10 +108,10 @@ export async function handleCallback(
     refresh_token: data.refresh_token,
     expires_at: Date.now() + (data.expires_in || 1800) * 1000,
     instance: instanceUrl,
+    clientId: pendingAuth.clientId,
   };
 
   pendingAuth = null;
-  console.log("OAuth tokens acquired successfully");
 }
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -121,7 +122,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: getClientId(),
+    client_id: tokens.clientId,
     refresh_token: tokens.refresh_token,
   });
 
@@ -143,6 +144,7 @@ async function refreshAccessToken(): Promise<boolean> {
       refresh_token: data.refresh_token || tokens.refresh_token,
       expires_at: Date.now() + (data.expires_in || 1800) * 1000,
       instance: tokens.instance,
+      clientId: tokens.clientId,
     };
 
     return true;

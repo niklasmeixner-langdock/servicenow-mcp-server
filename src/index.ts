@@ -108,7 +108,8 @@ app.get("/health", (req, res) => {
 app.get("/auth", (req, res) => {
   try {
     const redirectUri = req.query.redirect_uri as string | undefined;
-    const authUrl = getAuthUrl(redirectUri);
+    const clientId = req.query.client_id as string | undefined;
+    const authUrl = getAuthUrl(redirectUri, clientId);
     res.redirect(authUrl);
   } catch (error) {
     res.status(500).json({
