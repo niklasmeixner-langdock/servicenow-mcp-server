@@ -105,13 +105,12 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     if (params.scopes?.length) {
       authUrl.searchParams.set("scope", params.scopes.join(" "));
     }
-    // Pass PKCE to ServiceNow
-    authUrl.searchParams.set("code_challenge", params.codeChallenge);
-    authUrl.searchParams.set("code_challenge_method", "S256");
+    // Note: Not passing PKCE to ServiceNow - older ServiceNow versions don't support it
+    // PKCE is handled between MCP client and this server
 
-    console.log(
-      `[OAuth] Redirecting to ServiceNow auth: ${authUrl.toString()}`,
-    );
+    console.log(`[OAuth] ServiceNow client_id: ${clientId}`);
+    console.log(`[OAuth] ServiceNow instance: ${instanceUrl}`);
+    console.log(`[OAuth] Full auth URL: ${authUrl.toString()}`);
     res.redirect(authUrl.toString());
   }
 
