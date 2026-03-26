@@ -93,6 +93,7 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
       scopes: params.scopes,
       state: params.state,
     });
+    console.log(`[OAuth] Created session ${sessionId} for client ${client.client_id}`);
 
     // Build ServiceNow authorization URL
     // We use our callback URL, then redirect back to the client

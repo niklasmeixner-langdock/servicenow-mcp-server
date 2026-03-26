@@ -89,7 +89,13 @@ app.get("/test-routes", (_req, res) => {
 app.get("/oauth/callback", (req: Request, res: Response) => {
   const { code, state, error, error_description } = req.query;
 
-  console.log("[OAuth] Callback received:", { code: !!code, state, error });
+  console.log("[OAuth] Callback received:", {
+    code: !!code,
+    state,
+    error,
+    error_description,
+    fullQuery: req.query,
+  });
 
   if (error) {
     console.error(
@@ -100,13 +106,15 @@ app.get("/oauth/callback", (req: Request, res: Response) => {
   }
 
   if (!state || typeof state !== "string") {
+    console.error("[OAuth] Missing state parameter");
     res.status(400).json({ error: "missing_state" });
     return;
   }
 
   const session = getAuthorizationSession(state);
   if (!session) {
-    res.status(400).json({ error: "invalid_state" });
+    console.error(`[OAuth] Invalid state - no session found for: ${state}`);
+    res.status(400).json({ error: "invalid_state", state });
     return;
   }
 
