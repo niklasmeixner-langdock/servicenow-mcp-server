@@ -16,12 +16,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
 import { submitForm, getFormFields } from "./client.js";
-import { getBaseUrl } from "./utils.js";
+import { getBaseUrl, getInstanceUrl } from "./utils.js";
 import {
   ServiceNowOAuthProvider,
+  storeAuthorizationSession,
   getAuthorizationSession,
   deleteAuthorizationSession,
 } from "./oauth-provider.js";
+import crypto from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -89,6 +91,42 @@ const authRouter = mcpAuthRouter({
 });
 console.log(`[OAuth] Auth router created successfully`);
 app.use("/", authRouter);
+
+// Handle /authorize directly to avoid SDK's redirect_uri validation issues
+app.get("/authorize", (req: Request, res: Response) => {
+  const { client_id, redirect_uri, state, code_challenge } = req.query;
+
+  console.log("[OAuth] /authorize called:", { client_id, redirect_uri, state, hasCodeChallenge: !!code_challenge });
+
+  if (!client_id || !redirect_uri || !code_challenge) {
+    res.status(400).json({ error: "invalid_request", error_description: "Missing required parameters" });
+    return;
+  }
+
+  const sessionId = crypto.randomUUID();
+
+  storeAuthorizationSession(sessionId, {
+    clientId: client_id as string,
+    codeChallenge: code_challenge as string,
+    redirectUri: redirect_uri as string,
+    state: state as string | undefined,
+  });
+
+  const snClientId = process.env.SERVICENOW_CLIENT_ID;
+  const instanceUrl = getInstanceUrl();
+
+  const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", snClientId!);
+  authUrl.searchParams.set("redirect_uri", `${baseUrl}/oauth/callback`);
+  authUrl.searchParams.set("state", sessionId);
+  authUrl.searchParams.set("code_challenge", code_challenge as string);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("scope", "useraccount");
+
+  console.log("[OAuth] Redirecting to ServiceNow:", authUrl.toString());
+  res.redirect(authUrl.toString());
+});
 
 // Test route to verify Express routing works
 app.get("/test-routes", (_req, res) => {

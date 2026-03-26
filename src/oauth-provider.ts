@@ -281,6 +281,20 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
   }
 }
 
+// Helper to store session
+export function storeAuthorizationSession(
+  sessionId: string,
+  session: {
+    clientId: string;
+    codeChallenge: string;
+    redirectUri: string;
+    state?: string;
+  },
+) {
+  authorizationSessions.set(sessionId, session);
+  console.log(`[OAuth] Stored session ${sessionId}`);
+}
+
 // Helper to get session by state
 export function getAuthorizationSession(sessionId: string) {
   return authorizationSessions.get(sessionId);
