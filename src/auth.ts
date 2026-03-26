@@ -1,4 +1,5 @@
 import * as crypto from "crypto";
+import { getInstanceUrl, getBaseUrl } from "./utils.js";
 
 // ServiceNow OAuth configuration
 const CLIENT_ID = "42093b633ebb424abb79ee9a89aed6f3";
@@ -16,27 +17,6 @@ let tokens: TokenData | null = null;
 
 // PKCE state for pending auth flows
 let pendingAuth: { verifier: string; state: string } | null = null;
-
-function getInstanceUrl(): string {
-  const instance = process.env.SERVICENOW_INSTANCE;
-  if (!instance) {
-    throw new Error("SERVICENOW_INSTANCE environment variable is required");
-  }
-  const host = instance.includes(".")
-    ? instance
-    : `${instance}.service-now.com`;
-  return `https://${host}`;
-}
-
-function getBaseUrl(): string {
-  const baseUrl = process.env.BASE_URL;
-  if (!baseUrl) {
-    throw new Error(
-      "BASE_URL environment variable is required (e.g., https://your-app.railway.app)",
-    );
-  }
-  return baseUrl.replace(/\/$/, "");
-}
 
 function getRedirectUri(): string {
   return `${getBaseUrl()}/callback`;
@@ -160,12 +140,4 @@ export async function getAuthToken(): Promise<string | null> {
 
 export function isAuthenticated(): boolean {
   return tokens !== null;
-}
-
-export async function ensureAuthenticated(): Promise<void> {
-  if (!tokens) {
-    throw new Error(
-      "Not authenticated. Visit /auth to authenticate with ServiceNow.",
-    );
-  }
 }

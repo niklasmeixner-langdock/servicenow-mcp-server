@@ -1,13 +1,4 @@
-const getInstanceUrl = (): string => {
-  const instance = process.env.SERVICENOW_INSTANCE;
-  if (!instance) {
-    throw new Error("SERVICENOW_INSTANCE environment variable is required");
-  }
-  const host = instance.includes(".")
-    ? instance
-    : `${instance}.service-now.com`;
-  return `https://${host}`;
-};
+import { getInstanceUrl } from "./utils.js";
 
 export async function submitForm(
   table: string,
@@ -61,12 +52,6 @@ export interface FormField {
 export interface FormSchema {
   table: string;
   fields: FormField[];
-  _debug?: {
-    rawRowCount: number;
-    filteredRowCount: number;
-    queryUrl: string;
-    sampleRow?: Record<string, unknown> | null;
-  };
 }
 
 function classifyInputType(internalType: string): FormField["inputType"] {
@@ -200,14 +185,5 @@ export async function getFormFields(
     })
     .sort((a: FormField, b: FormField) => a.label.localeCompare(b.label));
 
-  return {
-    table,
-    fields,
-    _debug: {
-      rawRowCount: dictData.result?.length || 0,
-      filteredRowCount: dictRows.length,
-      queryUrl: `${dictUrl}?${dictParams}`,
-      sampleRow: dictRows[0] || null,
-    },
-  };
+  return { table, fields };
 }

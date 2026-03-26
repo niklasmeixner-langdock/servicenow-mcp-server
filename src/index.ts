@@ -16,7 +16,6 @@ import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
 import {
   getAuthToken,
-  ensureAuthenticated,
   getAuthUrl,
   handleCallback,
   isAuthenticated,

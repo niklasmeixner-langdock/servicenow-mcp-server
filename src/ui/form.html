@@ -179,7 +179,6 @@
         connect() {
           window.addEventListener("message", (event) => {
             const message = event.data;
-            console.log("[MCP App] Received message:", message);
 
             // Try to extract render data from various message formats
             let renderData = null;
@@ -213,7 +212,6 @@
             }
 
             if (renderData) {
-              console.log("[MCP App] Extracted render data:", renderData);
               if (this.onrenderdata) {
                 this.onrenderdata(renderData);
               } else {
@@ -235,7 +233,6 @@
             ) {
               const { resolve, reject } = this._pendingRequests.get(message.id);
               this._pendingRequests.delete(message.id);
-              console.log("[MCP App] Received tool response:", message);
               if (message.error) {
                 reject(new Error(message.error.message || "Tool call failed"));
               } else {
@@ -278,11 +275,6 @@
               },
               "*",
             );
-            console.log(
-              "[MCP App] Sent tool call:",
-              params.name,
-              params.arguments,
-            );
           });
         }
       }
@@ -304,7 +296,7 @@
 
       // Handle initial render data from MCP Apps host (via _meta)
       app.onrenderdata = (data) => {
-        console.log("[MCP App] onrenderdata called with:", data);
+        log("[MCP App] onrenderdata called with:", data);
         try {
           if (data.table && data.fields) {
             currentTable = data.table;
