@@ -107,9 +107,9 @@ app.get("/health", (req, res) => {
 // OAuth: Start authentication
 app.get("/auth", (req, res) => {
   try {
-    const redirectUri = req.query.redirect_uri as string | undefined;
     const clientId = req.query.client_id as string | undefined;
-    const authUrl = getAuthUrl(redirectUri, clientId);
+    const finalRedirect = req.query.final_redirect as string | undefined;
+    const authUrl = getAuthUrl(clientId, finalRedirect);
     res.redirect(authUrl);
   } catch (error) {
     res.status(500).json({
@@ -133,15 +133,19 @@ app.get("/callback", async (req, res) => {
   }
 
   try {
-    await handleCallback(code as string, state as string);
-    res.send(`
-      <html>
-        <body style="font-family: system-ui; padding: 40px; text-align: center;">
-          <h1>Successfully authenticated with ServiceNow</h1>
-          <p>You can now use the MCP server.</p>
-        </body>
-      </html>
-    `);
+    const finalRedirect = await handleCallback(code as string, state as string);
+    if (finalRedirect) {
+      res.redirect(finalRedirect);
+    } else {
+      res.send(`
+        <html>
+          <body style="font-family: system-ui; padding: 40px; text-align: center;">
+            <h1>Successfully authenticated with ServiceNow</h1>
+            <p>You can now use the MCP server.</p>
+          </body>
+        </html>
+      `);
+    }
   } catch (err) {
     res.status(500).send(`<h1>Authentication Error</h1><p>${err}</p>`);
   }

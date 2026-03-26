@@ -20,6 +20,7 @@ let pendingAuth: {
   state: string;
   redirectUri: string;
   clientId: string;
+  finalRedirect?: string;
 } | null = null;
 
 function getDefaultRedirectUri(): string | null {
@@ -30,7 +31,7 @@ function getDefaultRedirectUri(): string | null {
   }
 }
 
-export function getAuthUrl(redirectUri?: string, clientId?: string): string {
+export function getAuthUrl(clientId?: string, finalRedirect?: string): string {
   const instanceUrl = getInstanceUrl();
   const verifier = crypto.randomBytes(32).toString("base64url");
   const challenge = crypto
@@ -39,27 +40,29 @@ export function getAuthUrl(redirectUri?: string, clientId?: string): string {
     .digest("base64url");
   const state = crypto.randomBytes(16).toString("hex");
 
-  const finalRedirectUri = redirectUri || getDefaultRedirectUri();
-  if (!finalRedirectUri) {
-    throw new Error("redirect_uri is required");
+  // redirect_uri must be MCP server's callback (it has the PKCE verifier)
+  const redirectUri = getDefaultRedirectUri();
+  if (!redirectUri) {
+    throw new Error("BASE_URL env required for OAuth callback");
   }
 
-  const finalClientId = clientId || process.env.SERVICENOW_CLIENT_ID;
-  if (!finalClientId) {
+  const resolvedClientId = clientId || process.env.SERVICENOW_CLIENT_ID;
+  if (!resolvedClientId) {
     throw new Error("client_id is required");
   }
 
   pendingAuth = {
     verifier,
     state,
-    redirectUri: finalRedirectUri,
-    clientId: finalClientId,
+    redirectUri,
+    clientId: resolvedClientId,
+    finalRedirect,
   };
 
   const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", finalClientId);
-  authUrl.searchParams.set("redirect_uri", finalRedirectUri);
+  authUrl.searchParams.set("client_id", resolvedClientId);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("scope", SCOPE);
   authUrl.searchParams.set("code_challenge", challenge);
   authUrl.searchParams.set("code_challenge_method", "S256");
@@ -75,13 +78,14 @@ export function getPendingRedirectUri(): string | null {
 export async function handleCallback(
   code: string,
   state: string,
-): Promise<void> {
+): Promise<string | null> {
   if (!pendingAuth || pendingAuth.state !== state) {
     throw new Error("Invalid state parameter");
   }
 
   const instanceUrl = getInstanceUrl();
   const tokenUrl = `${instanceUrl}/oauth_token.do`;
+  const finalRedirect = pendingAuth.finalRedirect;
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -112,6 +116,7 @@ export async function handleCallback(
   };
 
   pendingAuth = null;
+  return finalRedirect || null;
 }
 
 async function refreshAccessToken(): Promise<boolean> {
