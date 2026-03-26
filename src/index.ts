@@ -134,9 +134,13 @@ app.get("/callback", async (req, res) => {
   }
 
   try {
-    const finalRedirect = await handleCallback(code as string, state as string);
-    if (finalRedirect) {
-      res.redirect(finalRedirect);
+    const result = await handleCallback(code as string, state as string);
+    if (result.finalRedirect) {
+      const redirectUrl = new URL(result.finalRedirect);
+      redirectUrl.searchParams.set("access_token", result.accessToken);
+      redirectUrl.searchParams.set("refresh_token", result.refreshToken);
+      redirectUrl.searchParams.set("expires_in", String(result.expiresIn));
+      res.redirect(redirectUrl.toString());
     } else {
       res.send(`
         <html>

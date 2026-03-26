@@ -75,17 +75,24 @@ export function getPendingRedirectUri(): string | null {
   return pendingAuth?.redirectUri || null;
 }
 
+interface CallbackResult {
+  finalRedirect: string | null;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
 export async function handleCallback(
   code: string,
   state: string,
-): Promise<string | null> {
+): Promise<CallbackResult> {
   if (!pendingAuth || pendingAuth.state !== state) {
     throw new Error("Invalid state parameter");
   }
 
   const instanceUrl = getInstanceUrl();
   const tokenUrl = `${instanceUrl}/oauth_token.do`;
-  const finalRedirect = pendingAuth.finalRedirect;
+  const finalRedirect = pendingAuth.finalRedirect || null;
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -107,16 +114,24 @@ export async function handleCallback(
   }
 
   const data = await response.json();
+  const expiresIn = data.expires_in || 1800;
+
   tokens = {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
-    expires_at: Date.now() + (data.expires_in || 1800) * 1000,
+    expires_at: Date.now() + expiresIn * 1000,
     instance: instanceUrl,
     clientId: pendingAuth.clientId,
   };
 
   pendingAuth = null;
-  return finalRedirect || null;
+
+  return {
+    finalRedirect,
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresIn,
+  };
 }
 
 async function refreshAccessToken(): Promise<boolean> {
