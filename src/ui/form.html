@@ -170,21 +170,50 @@
           this.name = options.name;
           this.version = options.version;
           this.ontoolresult = null;
+          this.onrenderdata = null;
           this._messageId = 0;
           this._pendingRequests = new Map();
+          this._queuedMessages = [];
         }
 
         connect() {
           window.addEventListener("message", (event) => {
             const message = event.data;
-            // Handle initial render data from MCP Apps host
-            if (
-              message.type === "renderData" &&
-              message.data &&
-              this.onrenderdata
-            ) {
-              this.onrenderdata(message.data);
+            console.log("[MCP App] Received message:", message);
+
+            // Try to extract render data from various message formats
+            let renderData = null;
+
+            // Format 1: { type: "renderData", data: {...} }
+            if (message.type === "renderData" && message.data) {
+              renderData = message.data;
             }
+            // Format 2: { type: "init", data: {...} } or { type: "initialData", data: {...} }
+            else if (
+              (message.type === "init" || message.type === "initialData") &&
+              message.data
+            ) {
+              renderData = message.data;
+            }
+            // Format 3: Direct data with table/fields (no type wrapper)
+            else if (message.table && message.fields) {
+              renderData = message;
+            }
+            // Format 4: { renderData: {...} } without type
+            else if (message.renderData) {
+              renderData = message.renderData;
+            }
+
+            if (renderData) {
+              console.log("[MCP App] Extracted render data:", renderData);
+              if (this.onrenderdata) {
+                this.onrenderdata(renderData);
+              } else {
+                // Queue for later if handler not set yet
+                this._queuedMessages.push(renderData);
+              }
+            }
+
             // Handle tool result (legacy pattern)
             if (message.type === "toolResult" && this.ontoolresult) {
               this.ontoolresult(message.result);
@@ -197,6 +226,14 @@
           });
           // Notify host that we're ready
           window.parent.postMessage({ type: "appReady", name: this.name }, "*");
+        }
+
+        // Process any queued messages after handler is set
+        processQueue() {
+          while (this._queuedMessages.length > 0 && this.onrenderdata) {
+            const data = this._queuedMessages.shift();
+            this.onrenderdata(data);
+          }
         }
 
         async callServerTool(params) {
@@ -231,6 +268,7 @@
 
       // Handle initial render data from MCP Apps host (via _meta)
       app.onrenderdata = (data) => {
+        console.log("[MCP App] onrenderdata called with:", data);
         try {
           if (data.table && data.fields) {
             currentTable = data.table;
@@ -241,6 +279,9 @@
           console.error("Error processing render data:", e);
         }
       };
+
+      // Process any messages that arrived before handler was set
+      app.processQueue();
 
       // Handle incoming tool results (fallback for MCP app mode)
       app.ontoolresult = (result) => {
