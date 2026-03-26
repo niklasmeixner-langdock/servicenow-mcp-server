@@ -67,6 +67,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Log ALL incoming requests to debug OAuth flow
+app.use((req, _res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.path}`, {
+    query: req.query,
+    contentType: req.headers["content-type"],
+  });
+  next();
+});
+
 // Install MCP auth router at root for OAuth DCR support
 // This exposes: /.well-known/oauth-authorization-server, /register, /authorize, /token
 const baseUrl = getBaseUrl();
@@ -149,6 +158,19 @@ app.all("/mcp", async (req: Request, res: Response) => {
       ? authHeader.slice(7)
       : null;
     console.log("Token present:", !!token);
+
+    // Return 401 if no token - triggers OAuth flow in MCP clients
+    if (!token) {
+      res.status(401).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32001,
+          message: "Unauthorized - OAuth authentication required",
+        },
+        id: null,
+      });
+      return;
+    }
 
     const server = createServer(token);
     const transport = new StreamableHTTPServerTransport({

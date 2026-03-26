@@ -78,6 +78,13 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     params: AuthorizationParams,
     res: Response,
   ): Promise<void> {
+    console.log("[OAuth] authorize() called with:", {
+      mcpClientId: client.client_id,
+      redirectUri: params.redirectUri,
+      scopes: params.scopes,
+      state: params.state,
+      hasCodeChallenge: !!params.codeChallenge,
+    });
     const { clientId } = getServiceNowOAuthConfig();
     const instanceUrl = getInstanceUrl();
     const baseUrl = getBaseUrl();
@@ -134,6 +141,11 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     _redirectUri?: string,
     _resource?: URL,
   ): Promise<OAuthTokens> {
+    console.log("[OAuth] exchangeAuthorizationCode() called with:", {
+      mcpClientId: client.client_id,
+      hasCode: !!authorizationCode,
+      hasCodeVerifier: !!codeVerifier,
+    });
     const { clientId, clientSecret } = getServiceNowOAuthConfig();
     const instanceUrl = getInstanceUrl();
     const baseUrl = getBaseUrl();
