@@ -68,6 +68,68 @@ function classifyInputType(internalType: string): FormField["inputType"] {
   return "text";
 }
 
+/**
+ * Get the table hierarchy (table + all parent tables) for inherited fields.
+ * ServiceNow tables can extend other tables, inheriting their fields.
+ */
+async function getTableHierarchy(
+  table: string,
+  headers: Record<string, string>,
+  instanceUrl: string,
+): Promise<string[]> {
+  const tables: string[] = [table];
+
+  try {
+    // Query sys_db_object to get table hierarchy
+    let currentTable = table;
+    const maxDepth = 10; // Prevent infinite loops
+
+    for (let i = 0; i < maxDepth; i++) {
+      const url = `${instanceUrl}/api/now/table/sys_db_object`;
+      const params = new URLSearchParams({
+        sysparm_query: `name=${currentTable}`,
+        sysparm_fields: "super_class",
+        sysparm_limit: "1",
+      });
+
+      const response = await fetch(`${url}?${params}`, {
+        method: "GET",
+        headers,
+      });
+      if (!response.ok) break;
+
+      const data = await response.json();
+      const record = data.result?.[0];
+
+      // super_class is a reference field - get the display value or linked table name
+      const superClass = record?.super_class;
+      if (!superClass) break;
+
+      // super_class can be { link, value } or just a string
+      const parentValue =
+        typeof superClass === "object" ? superClass.value : superClass;
+      if (!parentValue) break;
+
+      // Need to resolve the sys_id to table name
+      const parentUrl = `${instanceUrl}/api/now/table/sys_db_object/${parentValue}`;
+      const parentResponse = await fetch(parentUrl, { method: "GET", headers });
+      if (!parentResponse.ok) break;
+
+      const parentData = await parentResponse.json();
+      const parentName = parentData.result?.name;
+
+      if (!parentName || tables.includes(parentName)) break;
+
+      tables.push(parentName);
+      currentTable = parentName;
+    }
+  } catch (e) {
+    console.error("Error fetching table hierarchy:", e);
+  }
+
+  return tables;
+}
+
 export async function getFormFields(
   table: string,
   accessToken: string,
@@ -79,13 +141,16 @@ export async function getFormFields(
     Accept: "application/json",
   };
 
-  // Fetch field definitions from sys_dictionary (matching Langdock's approach)
+  // Get table hierarchy to include inherited fields
+  const tableHierarchy = await getTableHierarchy(table, headers, instanceUrl);
+
+  // Fetch field definitions from sys_dictionary for all tables in hierarchy
   const dictUrl = `${instanceUrl}/api/now/table/sys_dictionary`;
   const dictParams = new URLSearchParams({
-    sysparm_query: `nameIN${table}^elementISNOTEMPTY`,
+    sysparm_query: `nameIN${tableHierarchy.join(",")}^elementISNOTEMPTY`,
     sysparm_fields:
       "element,column_label,mandatory,internal_type,reference,max_length,default_value,read_only,choice,name",
-    sysparm_limit: "200",
+    sysparm_limit: "500",
   });
 
   const dictResponse = await fetch(`${dictUrl}?${dictParams}`, {
@@ -134,8 +199,9 @@ export async function getFormFields(
   > = {};
   if (choiceFields.length > 0) {
     const choiceUrl = `${instanceUrl}/api/now/table/sys_choice`;
+    // Query choices for all tables in hierarchy
     const choiceParams = new URLSearchParams({
-      sysparm_query: `table=${table}^elementIN${choiceFields.join(",")}^inactive=false`,
+      sysparm_query: `tableIN${tableHierarchy.join(",")}^elementIN${choiceFields.join(",")}^inactive=false`,
       sysparm_fields: "element,label,value,sequence",
       sysparm_limit: "500",
     });
@@ -160,30 +226,46 @@ export async function getFormFields(
     }
   }
 
-  // Build form schema (include all fields, mark read_only ones)
-  const fields: FormField[] = dictRows
-    .map((r: Record<string, unknown>) => {
-      const internalType = getInternalType(r.internal_type) || "string";
-      const inputType = classifyInputType(internalType);
-      const field: FormField = {
-        name: String(r.element),
-        label: String(r.column_label || r.element),
-        type: internalType,
-        inputType,
-        required: r.mandatory === "true" || r.mandatory === true,
-        readOnly: r.read_only === "true" || r.read_only === true,
-        maxLength: r.max_length ? Number(r.max_length) : undefined,
-        defaultValue: r.default_value ? String(r.default_value) : undefined,
-        referenceTable: r.reference ? String(r.reference) : undefined,
-      };
+  // Build form schema with deduplication (child table fields take precedence)
+  // Sort by table hierarchy so child table fields come first
+  const sortedRows = [...dictRows].sort((a, b) => {
+    const aIdx = tableHierarchy.indexOf(String(a.name));
+    const bIdx = tableHierarchy.indexOf(String(b.name));
+    return aIdx - bIdx;
+  });
 
-      if (choicesByField[field.name]) {
-        field.choices = choicesByField[field.name];
-      }
+  const seenFields = new Set<string>();
+  const fields: FormField[] = [];
 
-      return field;
-    })
-    .sort((a: FormField, b: FormField) => a.label.localeCompare(b.label));
+  for (const r of sortedRows) {
+    const fieldName = String(r.element);
+    // Skip duplicates - first occurrence (from child table) wins
+    if (seenFields.has(fieldName)) continue;
+    seenFields.add(fieldName);
+
+    const internalType = getInternalType(r.internal_type) || "string";
+    const inputType = classifyInputType(internalType);
+    const field: FormField = {
+      name: fieldName,
+      label: String(r.column_label || r.element),
+      type: internalType,
+      inputType,
+      required: r.mandatory === "true" || r.mandatory === true,
+      readOnly: r.read_only === "true" || r.read_only === true,
+      maxLength: r.max_length ? Number(r.max_length) : undefined,
+      defaultValue: r.default_value ? String(r.default_value) : undefined,
+      referenceTable: r.reference ? String(r.reference) : undefined,
+    };
+
+    if (choicesByField[field.name]) {
+      field.choices = choicesByField[field.name];
+    }
+
+    fields.push(field);
+  }
+
+  // Sort alphabetically by label
+  fields.sort((a, b) => a.label.localeCompare(b.label));
 
   return { table, fields };
 }
