@@ -38,7 +38,25 @@ function getServiceNowOAuthConfig() {
 
 class ServiceNowClientsStore implements OAuthRegisteredClientsStore {
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    return registeredClients.get(clientId);
+    let client = registeredClients.get(clientId);
+
+    // Auto-accept MCP clients that were registered before a restart
+    // This is necessary because we use in-memory storage
+    if (!client && clientId.startsWith("mcp_")) {
+      console.log(`[OAuth] Client ${clientId} not found, auto-creating for continuity`);
+      client = {
+        client_id: clientId,
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: [], // Will be validated per-request
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      };
+      registeredClients.set(clientId, client);
+    }
+
+    console.log(`[OAuth] getClient(${clientId}): ${client ? "found" : "NOT FOUND"}`);
+    return client;
   }
 
   registerClient(
@@ -54,7 +72,6 @@ class ServiceNowClientsStore implements OAuthRegisteredClientsStore {
       ...client,
       client_id: clientId,
       client_id_issued_at: clientIdIssuedAt,
-      // Public clients (PKCE) don't need a secret
     };
 
     registeredClients.set(clientId, fullClient);
