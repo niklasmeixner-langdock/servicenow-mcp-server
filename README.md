@@ -6,7 +6,7 @@ A reference implementation of an MCP server with interactive UI forms. Use this 
 
 - **Interactive Forms**: Renders dynamic forms in MCP-compatible hosts
 - **Form Pre-filling**: LLM can extract context from conversation to pre-populate fields
-- **OAuth Authentication**: PKCE flow for secure ServiceNow authentication
+- **OAuth DCR**: Dynamic Client Registration per MCP spec, proxies to ServiceNow
 - **Multiple Host Support**: Works with MCP Apps hosts and legacy UIResourceRenderer
 
 ## Architecture
@@ -35,8 +35,8 @@ A reference implementation of an MCP server with interactive UI forms. Use this 
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | MCP server setup, tool registration |
-| `src/auth.ts` | OAuth PKCE authentication flow |
+| `src/index.ts` | MCP server setup, tool registration, OAuth endpoints |
+| `src/oauth-provider.ts` | OAuth DCR provider (proxies to ServiceNow) |
 | `src/client.ts` | ServiceNow API client |
 | `src/ui/form.html` | Interactive form UI (rendered in iframe) |
 
@@ -51,10 +51,18 @@ pnpm install
 ### 2. Configure Environment
 
 ```bash
-export SERVICENOW_INSTANCE=your-instance  # e.g., dev12345
-export BASE_URL=http://localhost:3000     # Your server's public URL
-export PORT=3000                          # Optional, defaults to 3000
+export SERVICENOW_INSTANCE=your-instance    # e.g., dev12345
+export SERVICENOW_CLIENT_ID=your-client-id  # OAuth client ID from ServiceNow
+export SERVICENOW_CLIENT_SECRET=your-secret # Optional: OAuth client secret
+export BASE_URL=http://localhost:3000       # Your server's public URL
+export PORT=3000                            # Optional, defaults to 3000
 ```
+
+**ServiceNow OAuth Setup:**
+1. In ServiceNow, go to System OAuth > Application Registry
+2. Create a new OAuth API endpoint for external clients
+3. Set the redirect URL to `{BASE_URL}/oauth/callback`
+4. Copy the Client ID (and secret if using confidential client)
 
 ### 3. Build & Run
 
@@ -63,9 +71,15 @@ pnpm build
 pnpm start
 ```
 
-### 4. Authenticate
+### 4. Connect from MCP Client
 
-Visit `http://localhost:3000/auth` to start the OAuth flow with ServiceNow.
+The server exposes OAuth DCR endpoints at:
+- `/.well-known/oauth-authorization-server` - OAuth metadata
+- `/register` - Dynamic client registration
+- `/authorize` - Authorization endpoint
+- `/token` - Token endpoint
+
+MCP clients supporting DCR (like Langdock) will automatically discover and use these.
 
 ## Tools
 
@@ -171,16 +185,16 @@ window.parent.postMessage({
 To use this as a template for another service:
 
 1. **Replace ServiceNow client** (`src/client.ts`) with your service's API
-2. **Update OAuth config** (`src/auth.ts`) for your service's OAuth endpoints
+2. **Update OAuth provider** (`src/oauth-provider.ts`) for your service's OAuth endpoints
 3. **Modify form schema** to match your service's data model
 4. **Update form UI** (`src/ui/form.html`) if you need different field types
 
 ### Customization Points
 
 ```typescript
-// src/auth.ts - OAuth configuration
-const CLIENT_ID = "your-client-id";
-const SCOPE = "your-scopes";
+// src/oauth-provider.ts - OAuth configuration
+// Update authorize() to redirect to your OAuth provider
+// Update exchangeAuthorizationCode() to call your token endpoint
 
 // src/client.ts - API endpoints
 const url = `${instanceUrl}/api/your/endpoint`;
@@ -194,6 +208,8 @@ server.registerTool("your_tool", { ... });
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SERVICENOW_INSTANCE` | Yes | ServiceNow subdomain or full hostname |
+| `SERVICENOW_CLIENT_ID` | Yes | OAuth client ID from ServiceNow Application Registry |
+| `SERVICENOW_CLIENT_SECRET` | No | OAuth client secret (only for confidential clients) |
 | `BASE_URL` | Yes | Public URL of this server (for OAuth callback) |
 | `PORT` | No | Server port (default: 3000) |
 

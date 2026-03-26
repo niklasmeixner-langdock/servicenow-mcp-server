@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import {
   registerAppResource,
   registerAppTool,
@@ -15,6 +16,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
 import { submitForm, getFormFields } from "./client.js";
+import { getBaseUrl } from "./utils.js";
+import {
+  ServiceNowOAuthProvider,
+  getAuthorizationSession,
+  deleteAuthorizationSession,
+} from "./oauth-provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -50,10 +57,70 @@ function encodeForDataAttr(data: unknown): string {
     .replace(/>/g, "&gt;");
 }
 
-const app = createMcpExpressApp({ host: "0.0.0.0" });
-app.use(cors());
+// Create OAuth provider
+const oauthProvider = new ServiceNowOAuthProvider();
 
-// MCP endpoint - Langdock passes token via Authorization header
+// Create Express app
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Install MCP auth router at root for OAuth DCR support
+// This exposes: /.well-known/oauth-authorization-server, /register, /authorize, /token
+const baseUrl = getBaseUrl();
+app.use(
+  mcpAuthRouter({
+    provider: oauthProvider,
+    issuerUrl: new URL(baseUrl),
+    baseUrl: new URL(baseUrl),
+    scopesSupported: ["useraccount"],
+    resourceName: "ServiceNow MCP Server",
+  }),
+);
+
+// OAuth callback from ServiceNow - redirects back to the MCP client
+app.get("/oauth/callback", (req: Request, res: Response) => {
+  const { code, state, error, error_description } = req.query;
+
+  console.log("[OAuth] Callback received:", { code: !!code, state, error });
+
+  if (error) {
+    console.error(
+      `[OAuth] Error from ServiceNow: ${error} - ${error_description}`,
+    );
+    res.status(400).json({ error, error_description });
+    return;
+  }
+
+  if (!state || typeof state !== "string") {
+    res.status(400).json({ error: "missing_state" });
+    return;
+  }
+
+  const session = getAuthorizationSession(state);
+  if (!session) {
+    res.status(400).json({ error: "invalid_state" });
+    return;
+  }
+
+  // Build redirect URL back to the MCP client with the authorization code
+  const redirectUrl = new URL(session.redirectUri);
+  if (code) {
+    redirectUrl.searchParams.set("code", code as string);
+  }
+  if (session.state) {
+    redirectUrl.searchParams.set("state", session.state);
+  }
+
+  // Clean up session
+  deleteAuthorizationSession(state);
+
+  console.log(`[OAuth] Redirecting to client: ${redirectUrl.toString()}`);
+  res.redirect(redirectUrl.toString());
+});
+
+// MCP endpoint - uses Authorization header with Bearer token
 app.all("/mcp", async (req: Request, res: Response) => {
   console.log("=== MCP Request ===");
   console.log("Method:", req.method);
