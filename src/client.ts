@@ -245,6 +245,22 @@ export async function getFormFields(
 
     const internalType = getInternalType(r.internal_type) || "string";
     const inputType = classifyInputType(internalType);
+
+    // Filter out calculated/script default values - these are server-side and shouldn't be shown
+    let defaultValue: string | undefined;
+    if (r.default_value) {
+      const val = String(r.default_value);
+      // Skip javascript: expressions (calculated defaults)
+      // Skip date format placeholders like "dd.mm.yyyy"
+      const isCalculated =
+        val.startsWith("javascript:") ||
+        val.startsWith("glide.") ||
+        /^[dmy]{2,4}[.\-/][dmy]{2,4}[.\-/][dmy]{2,4}/i.test(val);
+      if (!isCalculated) {
+        defaultValue = val;
+      }
+    }
+
     const field: FormField = {
       name: fieldName,
       label: String(r.column_label || r.element),
@@ -253,7 +269,7 @@ export async function getFormFields(
       required: r.mandatory === "true" || r.mandatory === true,
       readOnly: r.read_only === "true" || r.read_only === true,
       maxLength: r.max_length ? Number(r.max_length) : undefined,
-      defaultValue: r.default_value ? String(r.default_value) : undefined,
+      defaultValue,
       referenceTable: r.reference ? String(r.reference) : undefined,
     };
 
