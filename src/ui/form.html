@@ -296,7 +296,6 @@
 
       // Handle initial render data from MCP Apps host (via _meta)
       app.onrenderdata = (data) => {
-        log("[MCP App] onrenderdata called with:", data);
         try {
           if (data.table && data.fields) {
             currentTable = data.table;
