@@ -62,6 +62,7 @@ const oauthProvider = new ServiceNowOAuthProvider();
 
 // Create Express app
 const app = express();
+app.set("trust proxy", 1); // Trust Railway's proxy
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
