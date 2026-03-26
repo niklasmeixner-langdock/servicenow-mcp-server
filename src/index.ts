@@ -69,15 +69,16 @@ app.use(express.urlencoded({ extended: true }));
 // Install MCP auth router at root for OAuth DCR support
 // This exposes: /.well-known/oauth-authorization-server, /register, /authorize, /token
 const baseUrl = getBaseUrl();
-app.use(
-  mcpAuthRouter({
-    provider: oauthProvider,
-    issuerUrl: new URL(baseUrl),
-    baseUrl: new URL(baseUrl),
-    scopesSupported: ["useraccount"],
-    resourceName: "ServiceNow MCP Server",
-  }),
-);
+console.log(`[OAuth] Setting up auth router with baseUrl: ${baseUrl}`);
+const authRouter = mcpAuthRouter({
+  provider: oauthProvider,
+  issuerUrl: new URL(baseUrl),
+  baseUrl: new URL(baseUrl),
+  scopesSupported: ["useraccount"],
+  resourceName: "ServiceNow MCP Server",
+});
+console.log(`[OAuth] Auth router created successfully`);
+app.use(authRouter);
 
 // OAuth callback from ServiceNow - redirects back to the MCP client
 app.get("/oauth/callback", (req: Request, res: Response) => {
@@ -315,6 +316,20 @@ function createServer(token: string | null): McpServer {
   return server;
 }
 
-app.listen(PORT, () =>
-  console.log(`ServiceNow MCP Server running on port ${PORT}`),
-);
+// Log registered routes for debugging
+function printRoutes(router: any, prefix = "") {
+  router.stack?.forEach((layer: any) => {
+    if (layer.route) {
+      const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+      console.log(`[Route] ${methods} ${prefix}${layer.route.path}`);
+    } else if (layer.name === "router") {
+      printRoutes(layer.handle, prefix + (layer.regexp.source === "^\\/?$" ? "" : layer.regexp.source.replace("\\/?", "").replace("(?=\\/|$)", "")));
+    }
+  });
+}
+
+app.listen(PORT, () => {
+  console.log(`ServiceNow MCP Server running on port ${PORT}`);
+  console.log(`[Routes] Registered routes:`);
+  printRoutes(app._router);
+});
