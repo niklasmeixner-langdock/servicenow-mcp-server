@@ -34,10 +34,7 @@ app.use(cors());
 // MCP endpoint (handles all methods per official pattern)
 app.all("/mcp", async (req: Request, res: Response) => {
   try {
-    // Ensure authenticated before handling request
-    await ensureAuthenticated();
-
-    // Create MCP server instance
+    // Create MCP server instance (auth check happens per-tool, not at connection level)
     const server = createServer();
 
     // Create transport
