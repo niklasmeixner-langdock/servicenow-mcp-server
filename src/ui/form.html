@@ -286,13 +286,43 @@
       let formFields = [];
       let prefillData = {};
 
-      // Check for embedded schema (self-contained mode for Claude Visualizer)
-      if (window.FORM_SCHEMA) {
-        currentTable = window.FORM_SCHEMA.table;
-        formFields = window.FORM_SCHEMA.fields;
-        prefillData = window.FORM_SCHEMA.prefill || {};
-        renderForm(window.FORM_SCHEMA);
+      /**
+       * Try to get schema from multiple sources for maximum compatibility:
+       * 1. window.FORM_SCHEMA (inline script injection)
+       * 2. data-schema attribute on container (CSP-safe fallback)
+       */
+      function getEmbeddedSchema() {
+        // Method 1: Check inline script variable
+        if (window.FORM_SCHEMA) {
+          return window.FORM_SCHEMA;
+        }
+
+        // Method 2: Check data attribute (CSP-safe fallback)
+        const container = document.querySelector(".form-container");
+        const schemaAttr = container?.getAttribute("data-schema");
+        if (schemaAttr) {
+          try {
+            return JSON.parse(schemaAttr);
+          } catch (e) {
+            console.error("Failed to parse schema from data attribute:", e);
+          }
+        }
+
+        return null;
       }
+
+      // Check for embedded schema (self-contained mode)
+      const embeddedSchema = getEmbeddedSchema();
+      if (embeddedSchema) {
+        currentTable = embeddedSchema.table;
+        formFields = embeddedSchema.fields;
+        prefillData = embeddedSchema.prefill || {};
+        renderForm(embeddedSchema);
+      }
+
+      // Connect to host EARLY to start receiving messages
+      // Messages will be queued until handlers are set
+      app.connect();
 
       // Handle initial render data from MCP Apps host (via _meta)
       app.onrenderdata = (data) => {
@@ -307,9 +337,6 @@
           console.error("Error processing render data:", e);
         }
       };
-
-      // Process any messages that arrived before handler was set
-      app.processQueue();
 
       // Handle incoming tool results (fallback for MCP app mode)
       app.ontoolresult = (result) => {
@@ -332,6 +359,9 @@
           console.error("Error processing tool result:", e);
         }
       };
+
+      // Process any messages that arrived before handlers were set
+      app.processQueue();
 
       function renderForm(schema) {
         const editableFields = schema.fields.filter((f) => !f.readOnly);
@@ -534,9 +564,6 @@
         const form = document.getElementById("servicenow-form");
         if (form) form.reset();
       };
-
-      // Connect to host
-      app.connect();
     </script>
   </body>
 </html>

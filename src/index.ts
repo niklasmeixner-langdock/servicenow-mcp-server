@@ -26,6 +26,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
+// Cache form HTML at startup to avoid repeated file reads
+let cachedFormHtml: string | null = null;
+
+async function getFormHtml(): Promise<string> {
+  if (!cachedFormHtml) {
+    const htmlPath = path.join(__dirname, "ui", "form.html");
+    cachedFormHtml = await fs.readFile(htmlPath, "utf-8");
+  }
+  return cachedFormHtml;
+}
+
+/**
+ * Safely encode JSON for embedding in HTML script tags.
+ * Escapes characters that could break out of script context.
+ */
+function safeJsonForHtml(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/'/g, "\\u0027")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+/**
+ * Encode data for use in HTML data attributes.
+ */
+function encodeForDataAttr(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 // Use official MCP Express app (handles body parsing correctly)
 const app = createMcpExpressApp({ host: "0.0.0.0" });
 app.use(cors());
@@ -123,8 +160,7 @@ function createServer(): McpServer {
     formResourceUri,
     { mimeType: RESOURCE_MIME_TYPE },
     async () => {
-      const htmlPath = path.join(__dirname, "ui", "form.html");
-      const html = await fs.readFile(htmlPath, "utf-8");
+      const html = await getFormHtml();
       return {
         contents: [
           { uri: formResourceUri, mimeType: RESOURCE_MIME_TYPE, text: html },
@@ -242,13 +278,22 @@ function createServer(): McpServer {
           prefill: prefill || {},
         };
 
-        // Load UI HTML for legacy hosts that use UIResourceRenderer
-        const htmlPath = path.join(__dirname, "ui", "form.html");
-        let html = await fs.readFile(htmlPath, "utf-8");
+        // Load cached UI HTML
+        let html = await getFormHtml();
 
-        // Inject schema data directly into HTML for self-contained rendering
-        const schemaScript = `<script>window.FORM_SCHEMA = ${JSON.stringify(renderData)};</script>`;
-        html = html.replace("</head>", `${schemaScript}</head>`);
+        // Inject schema data using BOTH methods for maximum compatibility:
+        // 1. Inline script (works when CSP allows inline scripts)
+        // 2. Data attribute (works when CSP blocks inline scripts)
+        const safeScript = `<script>window.FORM_SCHEMA = ${safeJsonForHtml(renderData)};</script>`;
+        const dataAttr = `data-schema="${encodeForDataAttr(renderData)}"`;
+
+        // Add data attribute to form container for CSP-restricted environments
+        html = html.replace(
+          '<div class="form-container">',
+          `<div class="form-container" ${dataAttr}>`,
+        );
+        // Also inject inline script for environments that support it
+        html = html.replace("</head>", `${safeScript}</head>`);
 
         return {
           content: [
