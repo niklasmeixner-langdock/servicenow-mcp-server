@@ -204,17 +204,23 @@ function createServer(): McpServer {
     {
       title: "Get Form Fields",
       description:
-        "Fetch the form schema for a ServiceNow table and display an interactive form.",
+        "Fetch the form schema for a ServiceNow table and display an interactive form. Use the prefill parameter to pre-populate form fields with data extracted from the conversation context.",
       inputSchema: {
         table: z
           .string()
           .describe(
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
+        prefill: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Optional key-value pairs to pre-fill form fields. Keys should match ServiceNow field names (e.g., 'short_description', 'description', 'urgency'). Extract relevant information from the user's message to populate these fields.",
+          ),
       },
       _meta: { ui: { resourceUri: formResourceUri } },
     },
-    async ({ table }) => {
+    async ({ table, prefill }) => {
       try {
         const token = await getAuthToken();
         if (!token) {
@@ -231,17 +237,23 @@ function createServer(): McpServer {
 
         const schema = await getFormFields(table, token);
 
+        // Combine schema with prefill data for the form
+        const renderData = {
+          ...schema,
+          prefill: prefill || {},
+        };
+
         // Load UI HTML for legacy hosts that use UIResourceRenderer
         const htmlPath = path.join(__dirname, "ui", "form.html");
         let html = await fs.readFile(htmlPath, "utf-8");
 
         // Inject schema data directly into HTML for self-contained rendering
-        const schemaScript = `<script>window.FORM_SCHEMA = ${JSON.stringify(schema)};</script>`;
+        const schemaScript = `<script>window.FORM_SCHEMA = ${JSON.stringify(renderData)};</script>`;
         html = html.replace("</head>", `${schemaScript}</head>`);
 
         return {
           content: [
-            { type: "text", text: JSON.stringify(schema) },
+            { type: "text", text: JSON.stringify(renderData) },
             // Inline resource for legacy hosts (UIResourceRenderer pattern)
             {
               type: "resource",
@@ -252,9 +264,9 @@ function createServer(): McpServer {
               },
             },
           ],
-          // Pass schema to MCP Apps iframe via _meta
+          // Pass schema + prefill to MCP Apps iframe via _meta
           _meta: {
-            "mcpui.dev/ui-initial-render-data": schema,
+            "mcpui.dev/ui-initial-render-data": renderData,
           },
         };
       } catch (error) {

@@ -292,11 +292,13 @@
 
       let currentTable = "";
       let formFields = [];
+      let prefillData = {};
 
       // Check for embedded schema (self-contained mode for Claude Visualizer)
       if (window.FORM_SCHEMA) {
         currentTable = window.FORM_SCHEMA.table;
         formFields = window.FORM_SCHEMA.fields;
+        prefillData = window.FORM_SCHEMA.prefill || {};
         renderForm(window.FORM_SCHEMA);
       }
 
@@ -307,6 +309,7 @@
           if (data.table && data.fields) {
             currentTable = data.table;
             formFields = data.fields;
+            prefillData = data.prefill || {};
             renderForm(data);
           }
         } catch (e) {
@@ -376,18 +379,30 @@
         const maxLength = field.maxLength
           ? `maxlength="${field.maxLength}"`
           : "";
-        const defaultVal = field.defaultValue || "";
+        // Use prefill data if available, otherwise fall back to field default
+        const defaultVal = prefillData[field.name] ?? field.defaultValue ?? "";
+        // Escape HTML to prevent XSS
+        const escapeHtml = (str) =>
+          String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        const safeVal = escapeHtml(defaultVal);
 
         let input = "";
 
         switch (field.inputType) {
           case "textarea":
-            input = `<textarea name="${field.name}" id="${field.name}" ${maxLength} ${field.required ? "required" : ""}>${defaultVal}</textarea>`;
+            input = `<textarea name="${field.name}" id="${field.name}" ${maxLength} ${field.required ? "required" : ""}>${safeVal}</textarea>`;
             break;
 
           case "select":
             const options = (field.choices || [])
-              .map((c) => `<option value="${c.value}">${c.label}</option>`)
+              .map(
+                (c) =>
+                  `<option value="${c.value}"${c.value === defaultVal ? " selected" : ""}>${c.label}</option>`,
+              )
               .join("");
             input = `<select name="${field.name}" id="${field.name}" ${field.required ? "required" : ""}>
             <option value="">-- Select --</option>
@@ -396,30 +411,32 @@
             break;
 
           case "boolean":
+            const isChecked =
+              defaultVal === "true" || defaultVal === true ? "checked" : "";
             input = `<div class="checkbox-wrapper">
-            <input type="checkbox" name="${field.name}" id="${field.name}" value="true" ${defaultVal === "true" ? "checked" : ""}>
+            <input type="checkbox" name="${field.name}" id="${field.name}" value="true" ${isChecked}>
             <label for="${field.name}" style="margin-bottom: 0">${field.label}</label>
           </div>`;
             return `<div class="form-group">${input}</div>`;
 
           case "number":
-            input = `<input type="number" name="${field.name}" id="${field.name}" value="${defaultVal}" ${field.required ? "required" : ""}>`;
+            input = `<input type="number" name="${field.name}" id="${field.name}" value="${safeVal}" ${field.required ? "required" : ""}>`;
             break;
 
           case "date":
-            input = `<input type="date" name="${field.name}" id="${field.name}" value="${defaultVal}" ${field.required ? "required" : ""}>`;
+            input = `<input type="date" name="${field.name}" id="${field.name}" value="${safeVal}" ${field.required ? "required" : ""}>`;
             break;
 
           case "datetime":
-            input = `<input type="datetime-local" name="${field.name}" id="${field.name}" value="${defaultVal}" ${field.required ? "required" : ""}>`;
+            input = `<input type="datetime-local" name="${field.name}" id="${field.name}" value="${safeVal}" ${field.required ? "required" : ""}>`;
             break;
 
           case "reference":
-            input = `<input type="text" name="${field.name}" id="${field.name}" placeholder="Enter sys_id${field.referenceTable ? " for " + field.referenceTable : ""}" value="${defaultVal}" ${maxLength} ${field.required ? "required" : ""}>`;
+            input = `<input type="text" name="${field.name}" id="${field.name}" placeholder="Enter sys_id${field.referenceTable ? " for " + field.referenceTable : ""}" value="${safeVal}" ${maxLength} ${field.required ? "required" : ""}>`;
             break;
 
           default:
-            input = `<input type="text" name="${field.name}" id="${field.name}" value="${defaultVal}" ${maxLength} ${field.required ? "required" : ""}>`;
+            input = `<input type="text" name="${field.name}" id="${field.name}" value="${safeVal}" ${maxLength} ${field.required ? "required" : ""}>`;
         }
 
         let hint = "";
