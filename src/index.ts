@@ -95,13 +95,14 @@ app.get("/auth", (req, res) => {
   try {
     const clientId = req.query.client_id as string;
     const redirectUri = req.query.redirect_uri as string;
+    const state = req.query.state as string | undefined;
 
     if (!clientId || !redirectUri) {
       res.status(400).json({ error: "client_id and redirect_uri required" });
       return;
     }
 
-    const authUrl = getAuthUrl(redirectUri, clientId);
+    const authUrl = getAuthUrl(redirectUri, clientId, state);
     res.redirect(authUrl);
   } catch (error) {
     res.status(500).json({
