@@ -169,27 +169,22 @@ function createServer(): McpServer {
     },
   );
 
-  // Register the submit_form tool (no UI needed)
+  // get_form_fields: Returns field schema only (no UI) - useful for LLM context
   server.registerTool(
-    "submit_form",
+    "get_form_fields",
     {
-      title: "Submit Form",
+      title: "Get Form Fields",
       description:
-        "Submit a form/record to a ServiceNow table and get the response. Use this to create records in any ServiceNow table (incidents, requests, tasks, etc.)",
+        "Get the available fields for a ServiceNow table. Returns field names, types, and constraints. Use this to understand what data can be submitted to a table.",
       inputSchema: {
         table: z
           .string()
           .describe(
             "The ServiceNow table name (e.g., 'incident', 'sc_request', 'task', 'change_request')",
           ),
-        data: z
-          .record(z.string(), z.unknown())
-          .describe(
-            "The form data to submit as key-value pairs. Field names should match ServiceNow field names (e.g., 'short_description', 'description', 'urgency')",
-          ),
       },
     },
-    async ({ table, data }) => {
+    async ({ table }) => {
       try {
         const token = await getAuthToken();
         if (!token) {
@@ -204,17 +199,13 @@ function createServer(): McpServer {
           };
         }
 
-        const result = await submitForm(
-          table,
-          data as Record<string, unknown>,
-          token,
-        );
+        const schema = await getFormFields(table, token);
 
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify(result, null, 2),
+              text: JSON.stringify(schema, null, 2),
             },
           ],
         };
@@ -223,7 +214,7 @@ function createServer(): McpServer {
           content: [
             {
               type: "text" as const,
-              text: `Error submitting form: ${error instanceof Error ? error.message : String(error)}`,
+              text: `Error fetching form fields: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
           isError: true,
@@ -232,14 +223,14 @@ function createServer(): McpServer {
     },
   );
 
-  // Register the get_form_fields tool WITH MCP UI link
+  // submit_form: Shows interactive UI form and submits to ServiceNow
   registerAppTool(
     server,
-    "get_form_fields",
+    "submit_form",
     {
-      title: "Get Form Fields",
+      title: "Submit Form",
       description:
-        "Fetch the form schema for a ServiceNow table and display an interactive form. Use the prefill parameter to pre-populate form fields with data extracted from the conversation context.",
+        "Display an interactive form to create a record in a ServiceNow table. Use the prefill parameter to pre-populate form fields with data extracted from the conversation context.",
       inputSchema: {
         table: z
           .string()
