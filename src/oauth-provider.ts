@@ -105,6 +105,8 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     // ServiceNow requires PKCE
     authUrl.searchParams.set("code_challenge", params.codeChallenge);
     authUrl.searchParams.set("code_challenge_method", "S256");
+    // ServiceNow requires useraccount scope
+    authUrl.searchParams.set("scope", "useraccount");
 
     console.log(`[OAuth] ServiceNow client_id: ${clientId}`);
     console.log(`[OAuth] ServiceNow instance: ${instanceUrl}`);
