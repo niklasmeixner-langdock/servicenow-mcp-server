@@ -233,7 +233,11 @@ function createServer(): McpServer {
 
         // Load UI HTML for legacy hosts that use UIResourceRenderer
         const htmlPath = path.join(__dirname, "ui", "form.html");
-        const html = await fs.readFile(htmlPath, "utf-8");
+        let html = await fs.readFile(htmlPath, "utf-8");
+
+        // Inject schema data directly into HTML for self-contained rendering
+        const schemaScript = `<script>window.FORM_SCHEMA = ${JSON.stringify(schema)};</script>`;
+        html = html.replace("</head>", `${schemaScript}</head>`);
 
         return {
           content: [
