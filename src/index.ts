@@ -14,7 +14,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
-import { getAuthUrl, handleCallback } from "./auth.js";
 import { submitForm, getFormFields } from "./client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +53,7 @@ function encodeForDataAttr(data: unknown): string {
 const app = createMcpExpressApp({ host: "0.0.0.0" });
 app.use(cors());
 
+// MCP endpoint - Langdock passes token via Authorization header
 app.all("/mcp", async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
@@ -74,61 +74,16 @@ app.all("/mcp", async (req: Request, res: Response) => {
     await transport.handleRequest(req, res, req.body);
   } catch {
     if (!res.headersSent) {
-      res
-        .status(500)
-        .json({
-          jsonrpc: "2.0",
-          error: { code: -32603, message: "Internal error" },
-          id: null,
-        });
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Internal error" },
+        id: null,
+      });
     }
   }
 });
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
-
-app.get("/auth", (req, res) => {
-  try {
-    const clientId = req.query.client_id as string;
-    const redirectUri = req.query.redirect_uri as string;
-
-    if (!clientId || !redirectUri) {
-      res.status(400).json({ error: "client_id and redirect_uri required" });
-      return;
-    }
-
-    res.redirect(getAuthUrl(clientId, redirectUri));
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: error instanceof Error ? error.message : "Auth failed" });
-  }
-});
-
-app.get("/callback", async (req, res) => {
-  const { code, state, error } = req.query;
-
-  if (error) {
-    res.status(400).send(`Authorization failed: ${error}`);
-    return;
-  }
-
-  if (!code || !state) {
-    res.status(400).send("Missing code or state");
-    return;
-  }
-
-  try {
-    const result = await handleCallback(code as string, state as string);
-    const url = new URL(result.finalRedirect);
-    url.searchParams.set("access_token", result.accessToken);
-    url.searchParams.set("refresh_token", result.refreshToken);
-    url.searchParams.set("expires_in", String(result.expiresIn));
-    res.redirect(url.toString());
-  } catch (err) {
-    res.status(500).send(`Token exchange failed: ${err}`);
-  }
-});
 
 function createServer(token: string | null): McpServer {
   const server = new McpServer({
@@ -196,7 +151,9 @@ function createServer(token: string | null): McpServer {
     {
       title: "Get Form Fields",
       description: "Get the available fields for a ServiceNow table.",
-      inputSchema: { table: z.string().describe("The ServiceNow table name") },
+      inputSchema: {
+        table: z.string().describe("The ServiceNow table name"),
+      },
     },
     async ({ table }) => {
       if (!token)
