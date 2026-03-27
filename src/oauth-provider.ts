@@ -47,7 +47,23 @@ function getServiceNowConfig() {
 
 class ServiceNowClientsStore implements OAuthRegisteredClientsStore {
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    return registeredClients.get(clientId);
+    let client = registeredClients.get(clientId);
+
+    // Auto-accept MCP clients after server restart (in-memory storage is lost)
+    // The /token endpoint needs to find the client to exchange the code
+    if (!client && clientId.startsWith("mcp_")) {
+      client = {
+        client_id: clientId,
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: [],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      };
+      registeredClients.set(clientId, client);
+    }
+
+    return client;
   }
 
   registerClient(
