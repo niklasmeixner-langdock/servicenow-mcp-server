@@ -314,30 +314,15 @@ function createMcpServer(token: string): McpServer {
   );
 
   // Tool: Render interactive form
-  // The LLM should first call get_form_fields, then pass the schema here
   registerAppTool(
     server,
     "render_form",
     {
       title: "Render Form",
       description:
-        "Display an interactive form. Call get_form_fields first to get the schema, then pass it here.",
+        "Display an interactive form to create a ServiceNow record. Optionally call get_form_fields first to see available fields.",
       inputSchema: {
-        schema: z.object({
-          table: z.string(),
-          fields: z.array(z.object({
-            name: z.string(),
-            label: z.string(),
-            type: z.string(),
-            inputType: z.string(),
-            required: z.boolean(),
-            readOnly: z.boolean(),
-            maxLength: z.number().optional(),
-            defaultValue: z.string().optional(),
-            choices: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
-            referenceTable: z.string().optional(),
-          })),
-        }).describe("The form schema from get_form_fields"),
+        table: z.string().describe("The ServiceNow table name"),
         prefill: z
           .record(z.string(), z.string())
           .optional()
@@ -345,8 +330,9 @@ function createMcpServer(token: string): McpServer {
       },
       _meta: { ui: { resourceUri: formResourceUri } },
     },
-    async ({ schema, prefill }) => {
+    async ({ table, prefill }) => {
       try {
+        const schema = await getFormFields(table, token);
         const renderData = { ...schema, prefill: prefill || {} };
         let html = await getFormHtml();
         html = html.replace(
