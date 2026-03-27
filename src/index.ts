@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 import express from "express";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Request, Response } from "express";
+import cors from "cors";
+import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
@@ -9,12 +16,6 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { z } from "zod";
-import cors from "cors";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Request, Response } from "express";
 import { submitForm, getFormFields } from "./client.js";
 import { getBaseUrl, getInstanceUrl } from "./utils.js";
 import {
@@ -23,10 +24,13 @@ import {
   getAuthorizationSession,
   deleteAuthorizationSession,
 } from "./oauth-provider.js";
-import crypto from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+// ---------------------------------------------------------------------------
+// HTML Form Utilities
+// ---------------------------------------------------------------------------
 
 let cachedFormHtml: string | null = null;
 
@@ -59,37 +63,40 @@ function encodeForDataAttr(data: unknown): string {
     .replace(/>/g, "&gt;");
 }
 
-// Create OAuth provider
-const oauthProvider = new ServiceNowOAuthProvider();
+// ---------------------------------------------------------------------------
+// Express App Setup
+// ---------------------------------------------------------------------------
 
-// Create Express app
 const app = express();
-app.set("trust proxy", 1); // Trust Railway's proxy
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Log ALL incoming requests to debug OAuth flow
-app.use((req, _res, next) => {
-  console.log(`[REQUEST] ${req.method} ${req.path}`, {
-    query: req.query,
-    contentType: req.headers["content-type"],
-  });
-  next();
-});
-
-// Handle /authorize directly BEFORE the SDK router
 const baseUrl = getBaseUrl();
+const oauthProvider = new ServiceNowOAuthProvider();
+
+// ---------------------------------------------------------------------------
+// OAuth Endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Authorization endpoint - initiates OAuth flow with ServiceNow.
+ * This is registered BEFORE the mcpAuthRouter to handle authorization directly,
+ * avoiding the SDK's redirect_uri validation which requires persistent storage.
+ */
 app.get("/authorize", (req: Request, res: Response) => {
   const { client_id, redirect_uri, state, code_challenge } = req.query;
 
-  console.log("[OAuth] /authorize called:", { client_id, redirect_uri, state, hasCodeChallenge: !!code_challenge });
-
   if (!client_id || !redirect_uri || !code_challenge) {
-    res.status(400).json({ error: "invalid_request", error_description: "Missing required parameters" });
+    res.status(400).json({
+      error: "invalid_request",
+      error_description: "Missing required parameters",
+    });
     return;
   }
 
+  // Generate session ID to correlate callback with this request
   const sessionId = crypto.randomUUID();
 
   storeAuthorizationSession(sessionId, {
@@ -99,6 +106,7 @@ app.get("/authorize", (req: Request, res: Response) => {
     state: state as string | undefined,
   });
 
+  // Redirect to ServiceNow's OAuth authorization
   const snClientId = process.env.SERVICENOW_CLIENT_ID;
   const instanceUrl = getInstanceUrl();
 
@@ -111,11 +119,15 @@ app.get("/authorize", (req: Request, res: Response) => {
   authUrl.searchParams.set("code_challenge_method", "S256");
   authUrl.searchParams.set("scope", "useraccount");
 
-  console.log("[OAuth] Redirecting to ServiceNow:", authUrl.toString());
   res.redirect(authUrl.toString());
 });
 
-// Install MCP auth router for /.well-known, /register, /token (but NOT /authorize - we handle that above)
+/**
+ * MCP Auth Router provides:
+ * - GET /.well-known/oauth-authorization-server (OAuth metadata)
+ * - POST /register (Dynamic Client Registration)
+ * - POST /token (Token exchange)
+ */
 const authRouter = mcpAuthRouter({
   provider: oauthProvider,
   issuerUrl: new URL(baseUrl),
@@ -125,45 +137,30 @@ const authRouter = mcpAuthRouter({
 });
 app.use("/", authRouter);
 
-// Test route to verify Express routing works
-app.get("/test-routes", (_req, res) => {
-  res.json({ status: "ok", message: "Express routing works" });
-});
-
-// OAuth callback from ServiceNow - redirects back to the MCP client
+/**
+ * OAuth callback - receives authorization code from ServiceNow
+ * and redirects back to the MCP client.
+ */
 app.get("/oauth/callback", (req: Request, res: Response) => {
   const { code, state, error, error_description } = req.query;
 
-  console.log("[OAuth] Callback received:", {
-    code: !!code,
-    state,
-    error,
-    error_description,
-    fullQuery: req.query,
-  });
-
   if (error) {
-    console.error(
-      `[OAuth] Error from ServiceNow: ${error} - ${error_description}`,
-    );
     res.status(400).json({ error, error_description });
     return;
   }
 
   if (!state || typeof state !== "string") {
-    console.error("[OAuth] Missing state parameter");
     res.status(400).json({ error: "missing_state" });
     return;
   }
 
   const session = getAuthorizationSession(state);
   if (!session) {
-    console.error(`[OAuth] Invalid state - no session found for: ${state}`);
-    res.status(400).json({ error: "invalid_state", state });
+    res.status(400).json({ error: "invalid_state" });
     return;
   }
 
-  // Build redirect URL back to the MCP client with the authorization code
+  // Redirect back to MCP client with the authorization code
   const redirectUrl = new URL(session.redirectUri);
   if (code) {
     redirectUrl.searchParams.set("code", code as string);
@@ -172,29 +169,22 @@ app.get("/oauth/callback", (req: Request, res: Response) => {
     redirectUrl.searchParams.set("state", session.state);
   }
 
-  // Clean up session
   deleteAuthorizationSession(state);
-
-  console.log(`[OAuth] Redirecting to client: ${redirectUrl.toString()}`);
   res.redirect(redirectUrl.toString());
 });
 
-// MCP endpoint - uses Authorization header with Bearer token
-app.all("/mcp", async (req: Request, res: Response) => {
-  console.log("=== MCP Request ===");
-  console.log("Method:", req.method);
-  console.log("Headers:", JSON.stringify(req.headers, null, 2));
-  console.log("Body:", JSON.stringify(req.body, null, 2));
-  console.log("===================");
+// ---------------------------------------------------------------------------
+// MCP Endpoint
+// ---------------------------------------------------------------------------
 
+app.all("/mcp", async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
-    console.log("Token present:", !!token);
 
-    // Return 401 if no token - triggers OAuth flow in MCP clients
+    // Return 401 to trigger OAuth flow in MCP clients
     if (!token) {
       res.status(401).json({
         jsonrpc: "2.0",
@@ -207,7 +197,7 @@ app.all("/mcp", async (req: Request, res: Response) => {
       return;
     }
 
-    const server = createServer(token);
+    const server = createMcpServer(token);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -219,11 +209,8 @@ app.all("/mcp", async (req: Request, res: Response) => {
 
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
-    console.log("=== MCP Request completed successfully ===");
   } catch (error) {
-    console.error("=== MCP Error ===");
-    console.error("Error:", error);
-    console.error("=================");
+    console.error("MCP request error:", error);
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -236,13 +223,19 @@ app.all("/mcp", async (req: Request, res: Response) => {
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-function createServer(token: string | null): McpServer {
+// ---------------------------------------------------------------------------
+// MCP Server Factory
+// ---------------------------------------------------------------------------
+
+function createMcpServer(token: string): McpServer {
   const server = new McpServer({
     name: "servicenow-mcp-server",
     version: "1.0.0",
   });
+
   const formResourceUri = "ui://servicenow/form";
 
+  // Register form UI resource
   registerAppResource(
     server,
     formResourceUri,
@@ -259,6 +252,7 @@ function createServer(token: string | null): McpServer {
     }),
   );
 
+  // Tool: Submit a record to ServiceNow
   server.registerTool(
     "submit_form",
     {
@@ -272,11 +266,6 @@ function createServer(token: string | null): McpServer {
       },
     },
     async ({ table, data }) => {
-      if (!token)
-        return {
-          content: [{ type: "text" as const, text: "Not authenticated" }],
-          isError: true,
-        };
       try {
         const result = await submitForm(
           table,
@@ -297,6 +286,7 @@ function createServer(token: string | null): McpServer {
     },
   );
 
+  // Tool: Get form fields for a table
   server.registerTool(
     "get_form_fields",
     {
@@ -307,11 +297,6 @@ function createServer(token: string | null): McpServer {
       },
     },
     async ({ table }) => {
-      if (!token)
-        return {
-          content: [{ type: "text" as const, text: "Not authenticated" }],
-          isError: true,
-        };
       try {
         const schema = await getFormFields(table, token);
         return {
@@ -328,12 +313,14 @@ function createServer(token: string | null): McpServer {
     },
   );
 
+  // Tool: Render interactive form
   registerAppTool(
     server,
     "render_form",
     {
       title: "Render Form",
-      description: "Display an interactive form to create a ServiceNow record.",
+      description:
+        "Display an interactive form to create a ServiceNow record.",
       inputSchema: {
         table: z.string().describe("The ServiceNow table name"),
         prefill: z
@@ -344,11 +331,6 @@ function createServer(token: string | null): McpServer {
       _meta: { ui: { resourceUri: formResourceUri } },
     },
     async ({ table, prefill }) => {
-      if (!token)
-        return {
-          content: [{ type: "text", text: "Not authenticated" }],
-          isError: true,
-        };
       try {
         const schema = await getFormFields(table, token);
         const renderData = { ...schema, prefill: prefill || {} };
@@ -387,11 +369,12 @@ function createServer(token: string | null): McpServer {
   return server;
 }
 
+// ---------------------------------------------------------------------------
+// Start Server
+// ---------------------------------------------------------------------------
+
 app.listen(PORT, () => {
   console.log(`ServiceNow MCP Server running on port ${PORT}`);
-  console.log(`[OAuth] Auth routes should be available at:`);
-  console.log(`  - GET /.well-known/oauth-authorization-server`);
-  console.log(`  - POST /register`);
-  console.log(`  - GET /authorize`);
-  console.log(`  - POST /token`);
+  console.log(`OAuth endpoints: /.well-known/oauth-authorization-server, /register, /authorize, /token`);
+  console.log(`MCP endpoint: /mcp`);
 });

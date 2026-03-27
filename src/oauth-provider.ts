@@ -6,14 +6,17 @@ import type {
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import type {
   OAuthClientInformationFull,
-  OAuthTokenRevocationRequest,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { randomUUID } from "node:crypto";
 import { getInstanceUrl, getBaseUrl } from "./utils.js";
 
-// In-memory stores (use Redis/DB in production)
+// ---------------------------------------------------------------------------
+// In-Memory Storage
+// Note: Use Redis/PostgreSQL in production for persistence across restarts
+// ---------------------------------------------------------------------------
+
 const registeredClients = new Map<string, OAuthClientInformationFull>();
 const authorizationSessions = new Map<
   string,
@@ -21,13 +24,15 @@ const authorizationSessions = new Map<
     clientId: string;
     codeChallenge: string;
     redirectUri: string;
-    scopes?: string[];
     state?: string;
   }
 >();
 
-// ServiceNow OAuth configuration from environment
-function getServiceNowOAuthConfig() {
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+function getServiceNowConfig() {
   const clientId = process.env.SERVICENOW_CLIENT_ID;
   const clientSecret = process.env.SERVICENOW_CLIENT_SECRET;
   if (!clientId) {
@@ -36,143 +41,78 @@ function getServiceNowOAuthConfig() {
   return { clientId, clientSecret };
 }
 
+// ---------------------------------------------------------------------------
+// Client Store (Dynamic Client Registration)
+// ---------------------------------------------------------------------------
+
 class ServiceNowClientsStore implements OAuthRegisteredClientsStore {
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    let client = registeredClients.get(clientId);
-
-    // Auto-accept MCP clients that were registered before a restart
-    // This is necessary because we use in-memory storage
-    if (!client && clientId.startsWith("mcp_")) {
-      console.log(`[OAuth] Client ${clientId} not found, auto-creating for continuity`);
-      client = {
-        client_id: clientId,
-        client_id_issued_at: Math.floor(Date.now() / 1000),
-        redirect_uris: [], // Will be validated per-request
-        grant_types: ["authorization_code", "refresh_token"],
-        response_types: ["code"],
-        token_endpoint_auth_method: "none",
-      };
-      registeredClients.set(clientId, client);
-    }
-
-    console.log(`[OAuth] getClient(${clientId}): ${client ? "found" : "NOT FOUND"}`);
-    return client;
+    return registeredClients.get(clientId);
   }
 
   registerClient(
-    client: Omit<
-      OAuthClientInformationFull,
-      "client_id" | "client_id_issued_at"
-    >,
+    client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
   ): OAuthClientInformationFull {
-    const clientId = `mcp_${randomUUID()}`;
-    const clientIdIssuedAt = Math.floor(Date.now() / 1000);
-
     const fullClient: OAuthClientInformationFull = {
       ...client,
-      client_id: clientId,
-      client_id_issued_at: clientIdIssuedAt,
+      client_id: `mcp_${randomUUID()}`,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
     };
-
-    registeredClients.set(clientId, fullClient);
-    console.log(`[OAuth] Registered new client: ${clientId}`);
+    registeredClients.set(fullClient.client_id, fullClient);
     return fullClient;
   }
 }
 
+// ---------------------------------------------------------------------------
+// OAuth Provider
+// ---------------------------------------------------------------------------
+
 export class ServiceNowOAuthProvider implements OAuthServerProvider {
   private _clientsStore = new ServiceNowClientsStore();
 
-  // Let ServiceNow handle PKCE validation
+  // ServiceNow handles PKCE validation
   skipLocalPkceValidation = true;
 
   get clientsStore(): OAuthRegisteredClientsStore {
     return this._clientsStore;
   }
 
+  /**
+   * Not used - we handle /authorize directly in index.ts to avoid
+   * the SDK's redirect_uri validation which requires persistent storage.
+   */
   async authorize(
-    client: OAuthClientInformationFull,
-    params: AuthorizationParams,
-    res: Response,
+    _client: OAuthClientInformationFull,
+    _params: AuthorizationParams,
+    _res: Response,
   ): Promise<void> {
-    console.log("[OAuth] authorize() called with:", {
-      mcpClientId: client.client_id,
-      redirectUri: params.redirectUri,
-      scopes: params.scopes,
-      state: params.state,
-      hasCodeChallenge: !!params.codeChallenge,
-    });
-    const { clientId } = getServiceNowOAuthConfig();
-    const instanceUrl = getInstanceUrl();
-    const baseUrl = getBaseUrl();
-
-    // Generate a unique session ID to track this authorization
-    const sessionId = randomUUID();
-
-    // Store the authorization session
-    authorizationSessions.set(sessionId, {
-      clientId: client.client_id,
-      codeChallenge: params.codeChallenge,
-      redirectUri: params.redirectUri,
-      scopes: params.scopes,
-      state: params.state,
-    });
-    console.log(`[OAuth] Created session ${sessionId} for client ${client.client_id}`);
-
-    // Build ServiceNow authorization URL
-    // We use our callback URL, then redirect back to the client
-    const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("client_id", clientId);
-    authUrl.searchParams.set("redirect_uri", `${baseUrl}/oauth/callback`);
-    authUrl.searchParams.set("state", sessionId);
-    // ServiceNow requires PKCE
-    authUrl.searchParams.set("code_challenge", params.codeChallenge);
-    authUrl.searchParams.set("code_challenge_method", "S256");
-    // ServiceNow requires useraccount scope
-    authUrl.searchParams.set("scope", "useraccount");
-
-    console.log(`[OAuth] ServiceNow client_id: ${clientId}`);
-    console.log(`[OAuth] ServiceNow instance: ${instanceUrl}`);
-    console.log(`[OAuth] Full auth URL: ${authUrl.toString()}`);
-    res.redirect(authUrl.toString());
+    throw new Error("Authorization handled directly by Express route");
   }
 
-  async challengeForAuthorizationCode(
+  async challengeForAuthorizationCode(): Promise<string> {
+    // Not called when skipLocalPkceValidation is true
+    return "";
+  }
+
+  /**
+   * Exchange authorization code for tokens with ServiceNow.
+   */
+  async exchangeAuthorizationCode(
     _client: OAuthClientInformationFull,
     authorizationCode: string,
-  ): Promise<string> {
-    // The authorization code from ServiceNow won't directly map to our sessions
-    // Since skipLocalPkceValidation is true, this won't be called for local validation
-    // But we need to return something for the interface
-    const session = Array.from(authorizationSessions.values()).find(
-      (s) => s.codeChallenge,
-    );
-    return session?.codeChallenge || "";
-  }
-
-  async exchangeAuthorizationCode(
-    client: OAuthClientInformationFull,
-    authorizationCode: string,
     codeVerifier?: string,
-    _redirectUri?: string,
-    _resource?: URL,
   ): Promise<OAuthTokens> {
-    console.log("[OAuth] exchangeAuthorizationCode() called with:", {
-      mcpClientId: client.client_id,
-      hasCode: !!authorizationCode,
-      hasCodeVerifier: !!codeVerifier,
-    });
-    const { clientId, clientSecret } = getServiceNowOAuthConfig();
+    const { clientId, clientSecret } = getServiceNowConfig();
     const instanceUrl = getInstanceUrl();
     const baseUrl = getBaseUrl();
 
-    const tokenUrl = `${instanceUrl}/oauth_token.do`;
-    const params = new URLSearchParams();
-    params.set("grant_type", "authorization_code");
-    params.set("code", authorizationCode);
-    params.set("redirect_uri", `${baseUrl}/oauth/callback`);
-    params.set("client_id", clientId);
+    const params = new URLSearchParams({
+      grant_type: "authorization_code",
+      code: authorizationCode,
+      redirect_uri: `${baseUrl}/oauth/callback`,
+      client_id: clientId,
+    });
+
     if (clientSecret) {
       params.set("client_secret", clientSecret);
     }
@@ -180,8 +120,7 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
       params.set("code_verifier", codeVerifier);
     }
 
-    console.log(`[OAuth] Exchanging code at ${tokenUrl}`);
-    const response = await fetch(tokenUrl, {
+    const response = await fetch(`${instanceUrl}/oauth_token.do`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -192,15 +131,10 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `[OAuth] Token exchange failed: ${response.status} ${errorText}`,
-      );
-      throw new Error(`Token exchange failed: ${response.status}`);
+      throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
     }
 
     const tokens = await response.json();
-    console.log(`[OAuth] Token exchange successful`);
-
     return {
       access_token: tokens.access_token,
       token_type: tokens.token_type || "Bearer",
@@ -210,20 +144,23 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     };
   }
 
+  /**
+   * Refresh an access token with ServiceNow.
+   */
   async exchangeRefreshToken(
     _client: OAuthClientInformationFull,
     refreshToken: string,
     scopes?: string[],
-    _resource?: URL,
   ): Promise<OAuthTokens> {
-    const { clientId, clientSecret } = getServiceNowOAuthConfig();
+    const { clientId, clientSecret } = getServiceNowConfig();
     const instanceUrl = getInstanceUrl();
 
-    const tokenUrl = `${instanceUrl}/oauth_token.do`;
-    const params = new URLSearchParams();
-    params.set("grant_type", "refresh_token");
-    params.set("refresh_token", refreshToken);
-    params.set("client_id", clientId);
+    const params = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: clientId,
+    });
+
     if (clientSecret) {
       params.set("client_secret", clientSecret);
     }
@@ -231,8 +168,7 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
       params.set("scope", scopes.join(" "));
     }
 
-    console.log(`[OAuth] Refreshing token at ${tokenUrl}`);
-    const response = await fetch(tokenUrl, {
+    const response = await fetch(`${instanceUrl}/oauth_token.do`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -243,15 +179,10 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `[OAuth] Token refresh failed: ${response.status} ${errorText}`,
-      );
-      throw new Error(`Token refresh failed: ${response.status}`);
+      throw new Error(`Token refresh failed: ${response.status} - ${errorText}`);
     }
 
     const tokens = await response.json();
-    console.log(`[OAuth] Token refresh successful`);
-
     return {
       access_token: tokens.access_token,
       token_type: tokens.token_type || "Bearer",
@@ -261,9 +192,11 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     };
   }
 
+  /**
+   * Verify access token validity.
+   * In production, consider introspecting with ServiceNow.
+   */
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    // For ServiceNow, we trust the token if it was issued by us
-    // In production, you'd want to introspect with ServiceNow or decode JWT
     return {
       token,
       clientId: "servicenow",
@@ -271,17 +204,15 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
     };
   }
 
-  async revokeToken(
-    _client: OAuthClientInformationFull,
-    _request: OAuthTokenRevocationRequest,
-  ): Promise<void> {
+  async revokeToken(): Promise<void> {
     // ServiceNow doesn't have a standard revocation endpoint
-    // Just acknowledge the request
-    console.log(`[OAuth] Token revocation requested (no-op for ServiceNow)`);
   }
 }
 
-// Helper to store session
+// ---------------------------------------------------------------------------
+// Session Helpers (used by /authorize and /oauth/callback in index.ts)
+// ---------------------------------------------------------------------------
+
 export function storeAuthorizationSession(
   sessionId: string,
   session: {
@@ -290,17 +221,14 @@ export function storeAuthorizationSession(
     redirectUri: string;
     state?: string;
   },
-) {
+): void {
   authorizationSessions.set(sessionId, session);
-  console.log(`[OAuth] Stored session ${sessionId}`);
 }
 
-// Helper to get session by state
 export function getAuthorizationSession(sessionId: string) {
   return authorizationSessions.get(sessionId);
 }
 
-// Helper to delete session
-export function deleteAuthorizationSession(sessionId: string) {
+export function deleteAuthorizationSession(sessionId: string): void {
   authorizationSessions.delete(sessionId);
 }

@@ -1,232 +1,114 @@
 # ServiceNow MCP Server
 
-A reference implementation of an MCP server with interactive UI forms. Use this as a template for building MCP servers that need to collect user input via forms.
+An MCP server that connects to ServiceNow, demonstrating OAuth Dynamic Client Registration (DCR) and interactive UI forms.
 
 ## Features
 
-- **Interactive Forms**: Renders dynamic forms in MCP-compatible hosts
+- **OAuth DCR**: Implements MCP's OAuth Dynamic Client Registration spec - clients register automatically
+- **Interactive Forms**: Renders dynamic forms for creating ServiceNow records
 - **Form Pre-filling**: LLM can extract context from conversation to pre-populate fields
-- **OAuth DCR**: Dynamic Client Registration per MCP spec, proxies to ServiceNow
-- **Multiple Host Support**: Works with MCP Apps hosts and legacy UIResourceRenderer
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   MCP Client    │────▶│   MCP Server    │────▶│   ServiceNow    │
-│  (Claude, etc)  │     │  (this server)  │     │      API        │
+│   (Langdock)    │     │  (this server)  │     │      API        │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                       │
-        │                       │ Returns form schema
-        │                       │ + UI resource
-        ▼                       ▼
-┌─────────────────────────────────────────┐
-│              MCP Host UI                │
-│  ┌───────────────────────────────────┐  │
-│  │         form.html (iframe)        │  │
-│  │  - Receives schema via postMessage│  │
-│  │  - Renders dynamic form           │  │
-│  │  - Submits via tools/call         │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
 ```
 
-### Key Files
+**OAuth Flow:**
+1. Client discovers OAuth endpoints via `/.well-known/oauth-authorization-server`
+2. Client registers via `/register` (DCR)
+3. Client initiates OAuth via `/authorize` → redirects to ServiceNow
+4. User authenticates with ServiceNow
+5. Callback to `/oauth/callback` → redirects to client with code
+6. Client exchanges code for token via `/token`
+7. Client uses token for `/mcp` requests
 
-| File | Purpose |
-|------|---------|
-| `src/index.ts` | MCP server setup, tool registration, OAuth endpoints |
-| `src/oauth-provider.ts` | OAuth DCR provider (proxies to ServiceNow) |
-| `src/client.ts` | ServiceNow API client |
-| `src/ui/form.html` | Interactive form UI (rendered in iframe) |
+## Quick Start
 
-## Setup
+### 1. ServiceNow OAuth Setup
 
-### 1. Install Dependencies
+1. In ServiceNow, go to **System OAuth > Application Registry**
+2. Create a new **OAuth API endpoint for external clients**
+3. Set the redirect URL to `{YOUR_SERVER_URL}/oauth/callback`
+4. Note the Client ID and Secret
+
+### 2. Environment Variables
+
+```bash
+export SERVICENOW_INSTANCE=dev12345              # Your instance subdomain
+export SERVICENOW_CLIENT_ID=your-client-id       # From step 1
+export SERVICENOW_CLIENT_SECRET=your-secret      # Optional, for confidential clients
+export BASE_URL=https://your-server.railway.app  # Your server's public URL
+export PORT=3000                                 # Optional, defaults to 3000
+```
+
+### 3. Run
 
 ```bash
 pnpm install
-```
-
-### 2. Configure Environment
-
-```bash
-export SERVICENOW_INSTANCE=your-instance    # e.g., dev12345
-export SERVICENOW_CLIENT_ID=your-client-id  # OAuth client ID from ServiceNow
-export SERVICENOW_CLIENT_SECRET=your-secret # Optional: OAuth client secret
-export BASE_URL=http://localhost:3000       # Your server's public URL
-export PORT=3000                            # Optional, defaults to 3000
-```
-
-**ServiceNow OAuth Setup:**
-1. In ServiceNow, go to System OAuth > Application Registry
-2. Create a new OAuth API endpoint for external clients
-3. Set the redirect URL to `{BASE_URL}/oauth/callback`
-4. Copy the Client ID (and secret if using confidential client)
-
-### 3. Build & Run
-
-```bash
 pnpm build
 pnpm start
 ```
 
-### 4. Connect from MCP Client
+## Project Structure
 
-The server exposes OAuth DCR endpoints at:
-- `/.well-known/oauth-authorization-server` - OAuth metadata
-- `/register` - Dynamic client registration
-- `/authorize` - Authorization endpoint
-- `/token` - Token endpoint
+```
+src/
+├── index.ts           # Express server, MCP tools, OAuth endpoints
+├── oauth-provider.ts  # OAuth DCR provider implementation
+├── client.ts          # ServiceNow API client
+├── utils.ts           # Configuration helpers
+└── ui/
+    └── form.html      # Interactive form UI
+```
 
-MCP clients supporting DCR (like Langdock) will automatically discover and use these.
+## MCP Tools
 
-## Tools
+| Tool | Description |
+|------|-------------|
+| `get_form_fields` | Get available fields for a ServiceNow table |
+| `submit_form` | Submit a record to a ServiceNow table |
+| `render_form` | Display an interactive form with optional pre-fill |
 
-### get_form_fields
+### Example: render_form with pre-fill
 
-Fetch form schema and display an interactive form.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `table` | string | Yes | ServiceNow table name (e.g., `incident`, `sc_request`) |
-| `prefill` | object | No | Key-value pairs to pre-populate form fields |
-
-**Example with prefill:**
 ```json
 {
   "table": "incident",
   "prefill": {
     "short_description": "Laptop won't turn on",
-    "description": "User reports laptop not booting since this morning. Tried power cycling.",
     "urgency": "2"
   }
 }
 ```
 
-The LLM can extract relevant information from the conversation and pass it via `prefill` to pre-populate the form for the user.
+## Adapting for Other Services
 
-### submit_form
+This server can be adapted for any OAuth-protected API:
 
-Submit a record to any ServiceNow table.
+1. **Update `oauth-provider.ts`**: Change token endpoints and scopes for your service
+2. **Update `client.ts`**: Implement your service's API calls
+3. **Update tools in `index.ts`**: Define tools relevant to your service
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `table` | string | Yes | ServiceNow table name |
-| `data` | object | Yes | Field values to submit |
+### Key Implementation Notes
 
-## MCP Apps Integration
-
-This server implements the MCP Apps pattern for interactive UIs:
-
-### 1. Register UI Resource
-
-```typescript
-registerAppResource(
-  server,
-  "ui://servicenow/form",  // Resource URI
-  "ui://servicenow/form",  // Resource name
-  { mimeType: RESOURCE_MIME_TYPE },
-  async () => ({ contents: [{ uri, mimeType, text: html }] })
-);
-```
-
-### 2. Link Tool to UI
-
-```typescript
-registerAppTool(
-  server,
-  "get_form_fields",
-  {
-    // ... tool config
-    _meta: { ui: { resourceUri: "ui://servicenow/form" } }
-  },
-  async ({ table, prefill }) => {
-    // Return data for the UI
-    return {
-      content: [{ type: "text", text: JSON.stringify(schema) }],
-      _meta: {
-        "mcpui.dev/ui-initial-render-data": { ...schema, prefill }
-      }
-    };
-  }
-);
-```
-
-### 3. Form Communication
-
-The form (`form.html`) communicates with the host via `postMessage`:
-
-**Receiving data:**
-```javascript
-window.addEventListener("message", (event) => {
-  // MCP Apps hosts send: { method: "ui/notifications/tool-result", params: { _meta: {...} } }
-  if (event.data.method === "ui/notifications/tool-result") {
-    const renderData = event.data.params._meta["mcpui.dev/ui-initial-render-data"];
-    renderForm(renderData);
-  }
-});
-```
-
-**Calling tools:**
-```javascript
-window.parent.postMessage({
-  jsonrpc: "2.0",
-  method: "tools/call",
-  id: messageId,
-  params: { name: "submit_form", arguments: { table, data } }
-}, "*");
-```
-
-## Adapting This Template
-
-To use this as a template for another service:
-
-1. **Replace ServiceNow client** (`src/client.ts`) with your service's API
-2. **Update OAuth provider** (`src/oauth-provider.ts`) for your service's OAuth endpoints
-3. **Modify form schema** to match your service's data model
-4. **Update form UI** (`src/ui/form.html`) if you need different field types
-
-### Customization Points
-
-```typescript
-// src/oauth-provider.ts - OAuth configuration
-// Update authorize() to redirect to your OAuth provider
-// Update exchangeAuthorizationCode() to call your token endpoint
-
-// src/client.ts - API endpoints
-const url = `${instanceUrl}/api/your/endpoint`;
-
-// src/index.ts - Tool definitions
-server.registerTool("your_tool", { ... });
-```
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SERVICENOW_INSTANCE` | Yes | ServiceNow subdomain or full hostname |
-| `SERVICENOW_CLIENT_ID` | Yes | OAuth client ID from ServiceNow Application Registry |
-| `SERVICENOW_CLIENT_SECRET` | No | OAuth client secret (only for confidential clients) |
-| `BASE_URL` | Yes | Public URL of this server (for OAuth callback) |
-| `PORT` | No | Server port (default: 3000) |
-
-## Development
-
-```bash
-pnpm dev  # Build and run in one command
-```
+- The `/authorize` endpoint is handled directly (before `mcpAuthRouter`) to avoid the SDK's redirect_uri validation which requires persistent client storage
+- In-memory storage is used for simplicity - use Redis/PostgreSQL in production
+- ServiceNow requires PKCE (`code_challenge`) for OAuth
 
 ## Deployment
 
-Deploy to any Node.js hosting platform (Railway, Fly.io, etc.):
+Deploy to any Node.js platform (Railway, Fly.io, Render, etc.):
 
 ```bash
 pnpm build
-PORT=3000 SERVICENOW_INSTANCE=your-instance BASE_URL=https://your-app.example.com node dist/index.js
+node dist/index.js
 ```
+
+Ensure `BASE_URL` matches your deployment URL for OAuth callbacks.
 
 ## License
 
