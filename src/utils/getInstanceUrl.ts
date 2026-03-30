@@ -12,16 +12,3 @@ export function getInstanceUrl(): string {
     : `${instance}.service-now.com`;
   return `https://${host}`;
 }
-
-/**
- * Get the base URL for this server (used for OAuth callbacks).
- */
-export function getBaseUrl(): string {
-  const baseUrl = process.env.BASE_URL;
-  if (!baseUrl) {
-    throw new Error(
-      "BASE_URL environment variable is required (e.g., https://your-app.railway.app)",
-    );
-  }
-  return baseUrl.replace(/\/$/, "");
-}

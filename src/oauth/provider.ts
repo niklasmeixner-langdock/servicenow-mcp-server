@@ -10,7 +10,8 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { randomUUID } from "node:crypto";
-import { getInstanceUrl, getBaseUrl } from "./utils.js";
+import { getInstanceUrl } from "../utils/getInstanceUrl.js";
+import { getBaseUrl } from "../utils/getBaseUrl.js";
 
 // ---------------------------------------------------------------------------
 // In-Memory Storage
@@ -67,7 +68,10 @@ class ServiceNowClientsStore implements OAuthRegisteredClientsStore {
   }
 
   registerClient(
-    client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
+    client: Omit<
+      OAuthClientInformationFull,
+      "client_id" | "client_id_issued_at"
+    >,
   ): OAuthClientInformationFull {
     const fullClient: OAuthClientInformationFull = {
       ...client,
@@ -147,7 +151,9 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
+      throw new Error(
+        `Token exchange failed: ${response.status} - ${errorText}`,
+      );
     }
 
     const tokens = await response.json();
@@ -195,7 +201,9 @@ export class ServiceNowOAuthProvider implements OAuthServerProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Token refresh failed: ${response.status} - ${errorText}`);
+      throw new Error(
+        `Token refresh failed: ${response.status} - ${errorText}`,
+      );
     }
 
     const tokens = await response.json();

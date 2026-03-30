@@ -1,4 +1,4 @@
-import { getInstanceUrl } from "./utils.js";
+import { getInstanceUrl } from "../utils/getInstanceUrl.js";
 
 export async function submitForm(
   table: string,

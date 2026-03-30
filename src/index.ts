@@ -2,9 +2,6 @@
 
 import express from "express";
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Request, Response } from "express";
 import cors from "cors";
 import { z } from "zod";
@@ -16,52 +13,20 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { submitForm, getFormFields } from "./client.js";
-import { getBaseUrl, getInstanceUrl } from "./utils.js";
+import { submitForm, getFormFields } from "./servicenow/client.js";
+import { getBaseUrl } from "./utils/getBaseUrl.js";
+import { getInstanceUrl } from "./utils/getInstanceUrl.js";
+import { getFormHtml } from "./utils/getFormHtml.js";
+import { safeJsonForHtml } from "./utils/safeJsonForHtml.js";
+import { encodeForDataAttr } from "./utils/encodeForDataAttr.js";
 import {
   ServiceNowOAuthProvider,
   storeAuthorizationSession,
   getAuthorizationSession,
   deleteAuthorizationSession,
-} from "./oauth-provider.js";
+} from "./oauth/provider.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-
-// ---------------------------------------------------------------------------
-// HTML Form Utilities
-// ---------------------------------------------------------------------------
-
-let cachedFormHtml: string | null = null;
-
-async function getFormHtml(): Promise<string> {
-  if (!cachedFormHtml) {
-    cachedFormHtml = await fs.readFile(
-      path.join(__dirname, "ui", "form.html"),
-      "utf-8",
-    );
-  }
-  return cachedFormHtml;
-}
-
-function safeJsonForHtml(data: unknown): string {
-  return JSON.stringify(data)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026")
-    .replace(/'/g, "\\u0027")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
-}
-
-function encodeForDataAttr(data: unknown): string {
-  return JSON.stringify(data)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
 
 // ---------------------------------------------------------------------------
 // Express App Setup
