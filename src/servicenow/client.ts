@@ -4,6 +4,7 @@ export async function submitForm(
   table: string,
   data: Record<string, unknown>,
   accessToken: string,
+  extraHeaders: Record<string, string> = {},
 ): Promise<unknown> {
   const instanceUrl = getInstanceUrl();
   const url = `${instanceUrl}/api/now/table/${table}`;
@@ -11,6 +12,7 @@ export async function submitForm(
   const response = await fetch(url, {
     method: "POST",
     headers: {
+      ...extraHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -133,9 +135,11 @@ async function getTableHierarchy(
 export async function getFormFields(
   table: string,
   accessToken: string,
+  extraHeaders: Record<string, string> = {},
 ): Promise<FormSchema> {
   const instanceUrl = getInstanceUrl();
   const headers = {
+    ...extraHeaders,
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
     Accept: "application/json",

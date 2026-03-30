@@ -19,6 +19,7 @@ import { getInstanceUrl } from "./utils/getInstanceUrl.js";
 import { getFormHtml } from "./utils/getFormHtml.js";
 import { safeJsonForHtml } from "./utils/safeJsonForHtml.js";
 import { encodeForDataAttr } from "./utils/encodeForDataAttr.js";
+import { extractCustomHeaders } from "./utils/extractCustomHeaders.js";
 import {
   ServiceNowOAuthProvider,
   storeAuthorizationSession,
@@ -144,7 +145,8 @@ app.all("/mcp", async (req: Request, res: Response) => {
       return;
     }
 
-    const server = createMcpServer(token);
+    const customHeaders = extractCustomHeaders(req.headers);
+    const server = createMcpServer(token, customHeaders);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -174,7 +176,10 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 // MCP Server Factory
 // ---------------------------------------------------------------------------
 
-function createMcpServer(token: string): McpServer {
+function createMcpServer(
+  token: string,
+  customHeaders: Record<string, string> = {},
+): McpServer {
   const server = new McpServer({
     name: "servicenow-mcp-server",
     version: "1.0.0",
@@ -218,6 +223,7 @@ function createMcpServer(token: string): McpServer {
           table,
           data as Record<string, unknown>,
           token,
+          customHeaders,
         );
         return {
           content: [
@@ -245,7 +251,7 @@ function createMcpServer(token: string): McpServer {
     },
     async ({ table }) => {
       try {
-        const schema = await getFormFields(table, token);
+        const schema = await getFormFields(table, token, customHeaders);
         return {
           content: [
             { type: "text" as const, text: JSON.stringify(schema, null, 2) },
@@ -279,7 +285,7 @@ function createMcpServer(token: string): McpServer {
     },
     async ({ table, prefill }) => {
       try {
-        const schema = await getFormFields(table, token);
+        const schema = await getFormFields(table, token, customHeaders);
         const renderData = { ...schema, prefill: prefill || {} };
         let html = await getFormHtml();
         html = html.replace(
