@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import express from "express";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,12 +10,20 @@ import cors from "cors";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import {
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { submitForm, getFormFields } from "./client.js";
+import { getBaseUrl, getInstanceUrl } from "./utils.js";
+import {
+  ServiceNowOAuthProvider,
+  storeAuthorizationSession,
+  getAuthorizationSession,
+  deleteAuthorizationSession,
+} from "./oauth-provider.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -63,6 +72,88 @@ app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+const baseUrl = getBaseUrl();
+const oauthProvider = new ServiceNowOAuthProvider();
+
+// ---------------------------------------------------------------------------
+// OAuth Endpoints
+// ---------------------------------------------------------------------------
+
+app.get("/authorize", (req: Request, res: Response) => {
+  const { client_id, redirect_uri, state, code_challenge } = req.query;
+
+  if (!client_id || !redirect_uri || !code_challenge) {
+    res.status(400).json({
+      error: "invalid_request",
+      error_description: "Missing required parameters",
+    });
+    return;
+  }
+
+  const sessionId = crypto.randomUUID();
+
+  storeAuthorizationSession(sessionId, {
+    clientId: client_id as string,
+    codeChallenge: code_challenge as string,
+    redirectUri: redirect_uri as string,
+    state: state as string | undefined,
+  });
+
+  const snClientId = process.env.SERVICENOW_CLIENT_ID;
+  const instanceUrl = getInstanceUrl();
+
+  const authUrl = new URL(`${instanceUrl}/oauth_auth.do`);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", snClientId!);
+  authUrl.searchParams.set("redirect_uri", `${baseUrl}/oauth/callback`);
+  authUrl.searchParams.set("state", sessionId);
+  authUrl.searchParams.set("code_challenge", code_challenge as string);
+  authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("scope", "useraccount");
+
+  res.redirect(authUrl.toString());
+});
+
+const authRouter = mcpAuthRouter({
+  provider: oauthProvider,
+  issuerUrl: new URL(baseUrl),
+  baseUrl: new URL(baseUrl),
+  scopesSupported: ["useraccount"],
+  resourceName: "ServiceNow MCP Server",
+});
+app.use("/", authRouter);
+
+app.get("/oauth/callback", (req: Request, res: Response) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    res.status(400).json({ error, error_description });
+    return;
+  }
+
+  if (!state || typeof state !== "string") {
+    res.status(400).json({ error: "missing_state" });
+    return;
+  }
+
+  const session = getAuthorizationSession(state);
+  if (!session) {
+    res.status(400).json({ error: "invalid_state" });
+    return;
+  }
+
+  const redirectUrl = new URL(session.redirectUri);
+  if (code) {
+    redirectUrl.searchParams.set("code", code as string);
+  }
+  if (session.state) {
+    redirectUrl.searchParams.set("state", session.state);
+  }
+
+  deleteAuthorizationSession(state);
+  res.redirect(redirectUrl.toString());
+});
 
 // ---------------------------------------------------------------------------
 // MCP Endpoint
@@ -266,5 +357,8 @@ function createMcpServer(token: string): McpServer {
 
 app.listen(PORT, () => {
   console.log(`ServiceNow MCP Server running on port ${PORT}`);
+  console.log(
+    `OAuth endpoints: /.well-known/oauth-authorization-server, /register, /authorize, /token`,
+  );
   console.log(`MCP endpoint: /mcp`);
 });
