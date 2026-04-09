@@ -6,51 +6,28 @@
     <title>ServiceNow Form</title>
     <style>
       :root {
-        --foreground: hsl(222, 84%, 5%);
-        --muted-foreground: hsl(215, 16%, 47%);
-        --border: hsl(214, 32%, 91%);
-        --input-bg: hsl(0, 0%, 100%);
-        --input-border: hsl(214, 32%, 91%);
-        --primary: hsl(221, 83%, 53%);
-        --primary-hover: hsl(221, 83%, 46%);
-        --primary-disabled: hsl(221, 83%, 75%);
-        --primary-foreground: hsl(210, 40%, 98%);
-        --secondary-bg: hsl(210, 40%, 96%);
-        --secondary-hover: hsl(210, 40%, 92%);
-        --secondary-foreground: hsl(222, 47%, 11%);
-        --ring: hsl(221, 83%, 53%);
-        --ring-offset: hsl(0, 0%, 100%);
-        --success-bg: hsl(142, 76%, 95%);
-        --success-border: hsl(142, 69%, 80%);
-        --success-foreground: hsl(142, 71%, 20%);
-        --destructive: hsl(0, 84%, 60%);
-        --error-bg: hsl(0, 86%, 97%);
-        --error-border: hsl(0, 84%, 82%);
-        --error-foreground: hsl(0, 72%, 35%);
+        --fg: #09090b;
+        --fg-muted: #71717a;
+        --border: #e4e4e7;
+        --input-bg: transparent;
+        --btn-primary-bg: #18181b;
+        --btn-primary-fg: #fafafa;
+        --btn-secondary-bg: transparent;
+        --btn-secondary-fg: #09090b;
+        --focus-ring: #09090b;
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --foreground: hsl(210, 40%, 98%);
-          --muted-foreground: hsl(215, 20%, 65%);
-          --border: hsl(217, 33%, 17%);
-          --input-bg: hsl(222, 47%, 8%);
-          --input-border: hsl(217, 33%, 22%);
-          --primary: hsl(217, 91%, 60%);
-          --primary-hover: hsl(217, 91%, 53%);
-          --primary-disabled: hsl(217, 60%, 38%);
-          --primary-foreground: hsl(222, 84%, 5%);
-          --secondary-bg: hsl(217, 33%, 17%);
-          --secondary-hover: hsl(217, 33%, 22%);
-          --secondary-foreground: hsl(210, 40%, 98%);
-          --ring: hsl(217, 91%, 60%);
-          --ring-offset: hsl(222, 47%, 8%);
-          --success-bg: hsl(142, 40%, 10%);
-          --success-border: hsl(142, 50%, 22%);
-          --success-foreground: hsl(142, 69%, 70%);
-          --error-bg: hsl(0, 40%, 10%);
-          --error-border: hsl(0, 55%, 25%);
-          --error-foreground: hsl(0, 84%, 75%);
+          --fg: #fafafa;
+          --fg-muted: #a1a1aa;
+          --border: #27272a;
+          --input-bg: transparent;
+          --btn-primary-bg: #fafafa;
+          --btn-primary-fg: #09090b;
+          --btn-secondary-bg: transparent;
+          --btn-secondary-fg: #fafafa;
+          --focus-ring: #fafafa;
         }
       }
 
@@ -61,19 +38,17 @@
       }
 
       body {
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
-          sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
         font-size: 14px;
         line-height: 1.5;
         padding: 20px;
         background: transparent;
-        color: var(--foreground);
+        color: var(--fg);
         -webkit-font-smoothing: antialiased;
       }
 
       .form-container {
-        max-width: 560px;
+        max-width: 520px;
         margin: 0 auto;
       }
 
@@ -84,19 +59,19 @@
       }
 
       .form-header h1 {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
         letter-spacing: -0.01em;
-        margin-bottom: 3px;
+        margin-bottom: 2px;
       }
 
       .form-header p {
         font-size: 13px;
-        color: var(--muted-foreground);
+        color: var(--fg-muted);
       }
 
       .form-group {
-        margin-bottom: 18px;
+        margin-bottom: 16px;
       }
 
       .form-group label {
@@ -104,12 +79,11 @@
         font-size: 13px;
         font-weight: 500;
         margin-bottom: 6px;
-        line-height: 1;
       }
 
       .form-group label .required {
-        color: var(--destructive);
-        margin-left: 3px;
+        color: #ef4444;
+        margin-left: 2px;
       }
 
       .form-group input,
@@ -117,33 +91,31 @@
       .form-group select {
         width: 100%;
         height: 36px;
-        padding: 0 12px;
-        font-size: 14px;
+        padding: 0 10px;
+        font-size: 13px;
         font-family: inherit;
-        border: 1px solid var(--input-border);
+        border: 1px solid var(--border);
         border-radius: 6px;
         background: var(--input-bg);
-        color: var(--foreground);
-        transition:
-          border-color 0.15s,
-          box-shadow 0.15s;
+        color: var(--fg);
+        transition: border-color 0.1s;
         appearance: none;
         -webkit-appearance: none;
       }
 
       .form-group textarea {
         height: auto;
-        min-height: 80px;
-        padding: 8px 12px;
+        min-height: 76px;
+        padding: 8px 10px;
         resize: vertical;
         line-height: 1.5;
       }
 
       .form-group select {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
         background-repeat: no-repeat;
         background-position: right 10px center;
-        padding-right: 30px;
+        padding-right: 28px;
         cursor: pointer;
       }
 
@@ -151,19 +123,14 @@
       .form-group textarea:focus,
       .form-group select:focus {
         outline: none;
-        border-color: var(--ring);
-        box-shadow:
-          0 0 0 2px var(--ring-offset),
-          0 0 0 4px var(--ring);
+        border-color: var(--focus-ring);
       }
 
       .form-group input::placeholder,
       .form-group textarea::placeholder {
-        color: var(--muted-foreground);
-        opacity: 0.7;
+        color: var(--fg-muted);
       }
 
-      /* Custom checkbox */
       .checkbox-wrapper {
         display: flex;
         align-items: center;
@@ -172,95 +139,79 @@
       }
 
       .form-group input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        min-width: 16px;
+        width: 15px;
+        height: 15px;
+        min-width: 15px;
         padding: 0;
-        border-radius: 4px;
-        border: 1px solid var(--input-border);
+        border-radius: 3px;
+        border: 1px solid var(--border);
         background: var(--input-bg);
         cursor: pointer;
-        accent-color: var(--primary);
+        accent-color: var(--btn-primary-bg);
         flex-shrink: 0;
-      }
-
-      .checkbox-wrapper label {
-        margin-bottom: 0;
-        font-weight: 400;
-        cursor: pointer;
       }
 
       .hint {
         font-size: 12px;
-        color: var(--muted-foreground);
-        margin-top: 5px;
-        line-height: 1.4;
+        color: var(--fg-muted);
+        margin-top: 4px;
       }
 
-      /* Buttons */
       .btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        height: 36px;
-        padding: 0 16px;
+        height: 34px;
+        padding: 0 14px;
         font-size: 13px;
         font-weight: 500;
         font-family: inherit;
-        border: none;
         border-radius: 6px;
         cursor: pointer;
-        transition:
-          background-color 0.15s,
-          box-shadow 0.15s,
-          opacity 0.15s;
+        transition: opacity 0.1s;
         white-space: nowrap;
-        letter-spacing: 0.01em;
+        border: 1px solid var(--border);
       }
 
       .btn:focus-visible {
-        outline: none;
-        box-shadow:
-          0 0 0 2px var(--ring-offset),
-          0 0 0 4px var(--ring);
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 2px;
       }
 
       .btn-primary {
-        background: var(--primary);
-        color: var(--primary-foreground);
+        background: var(--btn-primary-bg);
+        color: var(--btn-primary-fg);
+        border-color: var(--btn-primary-bg);
       }
 
       .btn-primary:hover:not(:disabled) {
-        background: var(--primary-hover);
+        opacity: 0.88;
       }
 
       .btn-primary:disabled {
-        background: var(--primary-disabled);
+        opacity: 0.4;
         cursor: not-allowed;
-        opacity: 0.7;
       }
 
       .btn-secondary {
-        background: var(--secondary-bg);
-        color: var(--secondary-foreground);
-        border: 1px solid var(--border);
+        background: var(--btn-secondary-bg);
+        color: var(--btn-secondary-fg);
         margin-right: 8px;
       }
 
       .btn-secondary:hover {
-        background: var(--secondary-hover);
+        opacity: 0.7;
       }
 
       .actions {
         display: flex;
         justify-content: flex-end;
         align-items: center;
-        margin-top: 28px;
-        padding-top: 18px;
+        margin-top: 24px;
+        padding-top: 16px;
         border-top: 1px solid var(--border);
       }
 
-      /* Loading state */
       .loading {
         display: flex;
         align-items: center;
@@ -268,52 +219,53 @@
         gap: 10px;
         padding: 48px 0;
         font-size: 13px;
-        color: var(--muted-foreground);
+        color: var(--fg-muted);
       }
 
       .loading::after {
         content: "";
-        width: 16px;
-        height: 16px;
-        border: 2px solid var(--border);
-        border-top-color: var(--primary);
+        width: 15px;
+        height: 15px;
+        border: 1.5px solid var(--border);
+        border-top-color: var(--fg);
         border-radius: 50%;
         animation: spin 0.7s linear infinite;
         flex-shrink: 0;
       }
 
       @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
+        to { transform: rotate(360deg); }
       }
 
-      /* Alerts */
       .success {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding: 14px 16px;
-        background: var(--success-bg);
-        border: 1px solid var(--success-border);
-        border-radius: 8px;
-        color: var(--success-foreground);
-        font-size: 14px;
+        gap: 4px;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 13px;
       }
 
       .success h3 {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
       }
 
       .error {
-        padding: 12px 16px;
-        background: var(--error-bg);
-        border: 1px solid var(--error-border);
+        padding: 10px 14px;
+        border: 1px solid #fca5a5;
         border-radius: 6px;
-        color: var(--error-foreground);
+        color: #b91c1c;
         font-size: 13px;
         line-height: 1.5;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .error {
+          border-color: #7f1d1d;
+          color: #fca5a5;
+        }
       }
     </style>
   </head>
