@@ -6,10 +6,11 @@
     <title>ServiceNow Form</title>
     <style>
       :root {
+        --bg: #ffffff;
         --fg: #09090b;
         --fg-muted: #71717a;
         --border: #e4e4e7;
-        --input-bg: transparent;
+        --input-bg: #ffffff;
         --btn-primary-bg: #18181b;
         --btn-primary-fg: #fafafa;
         --btn-secondary-bg: transparent;
@@ -19,10 +20,11 @@
 
       @media (prefers-color-scheme: dark) {
         :root {
+          --bg: #0a0a0a;
           --fg: #fafafa;
           --fg-muted: #a1a1aa;
           --border: #27272a;
-          --input-bg: transparent;
+          --input-bg: #0a0a0a;
           --btn-primary-bg: #fafafa;
           --btn-primary-fg: #09090b;
           --btn-secondary-bg: transparent;
@@ -42,7 +44,7 @@
         font-size: 14px;
         line-height: 1.5;
         padding: 20px;
-        background: transparent;
+        background: var(--bg);
         color: var(--fg);
         -webkit-font-smoothing: antialiased;
       }
