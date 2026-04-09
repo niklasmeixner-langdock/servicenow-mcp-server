@@ -73,7 +73,7 @@
         margin-left: 2px;
       }
 
-      .form-group input,
+      .form-group input:not([type="checkbox"]),
       .form-group textarea,
       .form-group select {
         width: 100%;
@@ -85,9 +85,15 @@
         border-radius: 6px;
         background: var(--input-bg);
         color: var(--fg);
-        transition: border-color 0.1s;
+        transition: border-color 0.15s;
         appearance: none;
         -webkit-appearance: none;
+      }
+
+      .form-group input:not([type="checkbox"]):hover,
+      .form-group textarea:hover,
+      .form-group select:hover {
+        border-color: #c4c4c7;
       }
 
       .form-group textarea {
@@ -106,11 +112,12 @@
         cursor: pointer;
       }
 
-      .form-group input:focus,
+      .form-group input:not([type="checkbox"]):focus,
       .form-group textarea:focus,
       .form-group select:focus {
         outline: none;
         border-color: var(--focus-ring);
+        box-shadow: 0 0 0 3px rgba(9, 9, 11, 0.08);
       }
 
       .form-group input::placeholder,
@@ -130,12 +137,11 @@
         height: 15px;
         min-width: 15px;
         padding: 0;
-        border-radius: 3px;
-        border: 1px solid var(--border);
-        background: var(--input-bg);
         cursor: pointer;
         accent-color: var(--btn-primary-bg);
         flex-shrink: 0;
+        appearance: auto;
+        -webkit-appearance: auto;
       }
 
       .hint {
@@ -246,13 +252,6 @@
         color: #b91c1c;
         font-size: 13px;
         line-height: 1.5;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        .error {
-          border-color: #7f1d1d;
-          color: #fca5a5;
-        }
       }
     </style>
   </head>
@@ -463,12 +462,17 @@
       // Process any messages that arrived before handlers were set
       app.processQueue();
 
+      function toTitleCase(str) {
+        return str.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+
       function renderForm(schema) {
         const editableFields = schema.fields.filter((f) => !f.readOnly);
+        const tableLabel = toTitleCase(schema.table);
 
         let html = `
         <div class="form-header">
-          <h1>${schema.table} Form</h1>
+          <h1>${tableLabel}</h1>
           <p>Fill in the fields below to create a new record</p>
         </div>
         <form id="servicenow-form">
@@ -526,7 +530,7 @@
               )
               .join("");
             input = `<select name="${field.name}" id="${field.name}" ${field.required ? "required" : ""}>
-            <option value="">-- Select --</option>
+            <option value="">Select an option</option>
             ${options}
           </select>`;
             break;
@@ -553,7 +557,10 @@
             break;
 
           case "reference":
-            input = `<input type="text" name="${field.name}" id="${field.name}" placeholder="Enter sys_id${field.referenceTable ? " for " + field.referenceTable : ""}" value="${safeVal}" ${maxLength} ${field.required ? "required" : ""}>`;
+            const refTable = typeof field.referenceTable === "string"
+              ? field.referenceTable
+              : (field.referenceTable?.name || field.referenceTable?.label || "");
+            input = `<input type="text" name="${field.name}" id="${field.name}" placeholder="${refTable ? "Search " + toTitleCase(refTable) + "..." : "Enter sys_id"}" value="${safeVal}" ${maxLength} ${field.required ? "required" : ""}>`;
             break;
 
           default:
@@ -564,7 +571,10 @@
         if (field.hint) {
           hint = `<div class="hint">${field.hint}</div>`;
         } else if (field.referenceTable) {
-          hint = `<div class="hint">Reference to ${field.referenceTable}</div>`;
+          const refName = typeof field.referenceTable === "string"
+            ? field.referenceTable
+            : (field.referenceTable?.name || field.referenceTable?.label || "");
+          if (refName) hint = `<div class="hint">References ${toTitleCase(refName)}</div>`;
         }
 
         return `
