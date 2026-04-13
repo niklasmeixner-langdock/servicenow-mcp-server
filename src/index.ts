@@ -1,31 +1,31 @@
 #!/usr/bin/env node
-
-import express from "express";
-import crypto from "node:crypto";
-import type { Request, Response } from "express";
-import cors from "cors";
-import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import {
+  RESOURCE_MIME_TYPE,
   registerAppResource,
   registerAppTool,
-  RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { submitForm, getFormFields } from "./servicenow/client.js";
-import { getBaseUrl } from "./utils/getBaseUrl.js";
-import { getInstanceUrl } from "./utils/getInstanceUrl.js";
-import { getFormHtml } from "./utils/getFormHtml.js";
-import { safeJsonForHtml } from "./utils/safeJsonForHtml.js";
-import { encodeForDataAttr } from "./utils/encodeForDataAttr.js";
-import { extractCustomHeaders } from "./utils/extractCustomHeaders.js";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import cors from "cors";
+import express from "express";
+import type { Request, Response } from "express";
+import crypto from "node:crypto";
+import { z } from "zod";
+
 import {
   ServiceNowOAuthProvider,
-  storeAuthorizationSession,
-  getAuthorizationSession,
   deleteAuthorizationSession,
+  getAuthorizationSession,
+  storeAuthorizationSession,
 } from "./oauth/provider.js";
+import { getFormFields, submitForm } from "./servicenow/client.js";
+import { encodeForDataAttr } from "./utils/encodeForDataAttr.js";
+import { extractCustomHeaders } from "./utils/extractCustomHeaders.js";
+import { getBaseUrl } from "./utils/getBaseUrl.js";
+import { getFormHtml } from "./utils/getFormHtml.js";
+import { getInstanceUrl } from "./utils/getInstanceUrl.js";
+import { safeJsonForHtml } from "./utils/safeJsonForHtml.js";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
@@ -277,7 +277,7 @@ function createMcpServer(
       inputSchema: {
         table: z.string().describe("The ServiceNow table name"),
         prefill: z
-          .record(z.string(), z.string())
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
           .optional()
           .describe("Optional key-value pairs to pre-fill"),
       },

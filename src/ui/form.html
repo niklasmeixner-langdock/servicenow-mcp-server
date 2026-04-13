@@ -25,7 +25,9 @@
       }
 
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
+          sans-serif;
         font-size: 14px;
         line-height: 1.5;
         padding: 20px;
@@ -227,7 +229,9 @@
       }
 
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .success {
@@ -385,6 +389,15 @@
       let formFields = [];
       let prefillData = {};
 
+      function parseToolTextPayload(text) {
+        if (typeof text !== "string") return null;
+        try {
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
+      }
+
       /**
        * Try to get schema from multiple sources for maximum compatibility:
        * 1. window.FORM_SCHEMA (inline script injection)
@@ -444,14 +457,16 @@
             (c) => c.type === "text",
           )?.text;
           if (textContent) {
-            const data = JSON.parse(textContent);
-            if (data.table && data.fields) {
+            const data = parseToolTextPayload(textContent);
+            if (data && typeof data === "object" && data.table && data.fields) {
               currentTable = data.table;
               formFields = data.fields;
               renderForm(data);
-            } else if (data.sys_id) {
+            } else if (data && typeof data === "object" && data.sys_id) {
               // Successful submission
               renderSuccess(data);
+            } else if (typeof data === "string") {
+              renderError(data);
             }
           }
         } catch (e) {
@@ -557,9 +572,12 @@
             break;
 
           case "reference":
-            const refTable = typeof field.referenceTable === "string"
-              ? field.referenceTable
-              : (field.referenceTable?.name || field.referenceTable?.label || "");
+            const refTable =
+              typeof field.referenceTable === "string"
+                ? field.referenceTable
+                : field.referenceTable?.name ||
+                  field.referenceTable?.label ||
+                  "";
             input = `<input type="text" name="${field.name}" id="${field.name}" placeholder="${refTable ? "Search " + toTitleCase(refTable) + "..." : "Enter sys_id"}" value="${safeVal}" ${maxLength} ${field.required ? "required" : ""}>`;
             break;
 
@@ -571,10 +589,12 @@
         if (field.hint) {
           hint = `<div class="hint">${field.hint}</div>`;
         } else if (field.referenceTable) {
-          const refName = typeof field.referenceTable === "string"
-            ? field.referenceTable
-            : (field.referenceTable?.name || field.referenceTable?.label || "");
-          if (refName) hint = `<div class="hint">References ${toTitleCase(refName)}</div>`;
+          const refName =
+            typeof field.referenceTable === "string"
+              ? field.referenceTable
+              : field.referenceTable?.name || field.referenceTable?.label || "";
+          if (refName)
+            hint = `<div class="hint">References ${toTitleCase(refName)}</div>`;
         }
 
         return `
@@ -622,9 +642,15 @@
             (c) => c.type === "text",
           )?.text;
           if (textContent) {
-            const responseData = JSON.parse(textContent);
-            if (responseData.sys_id) {
+            const responseData = parseToolTextPayload(textContent);
+            if (
+              responseData &&
+              typeof responseData === "object" &&
+              responseData.sys_id
+            ) {
               renderSuccess(responseData);
+            } else if (typeof responseData === "string") {
+              throw new Error(responseData);
             } else {
               throw new Error("Unexpected response format");
             }
