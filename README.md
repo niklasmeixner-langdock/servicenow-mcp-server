@@ -72,6 +72,7 @@ src/
 | `get_form_fields` | Get available fields for a ServiceNow table |
 | `submit_form` | Submit a record to a ServiceNow table |
 | `render_form` | Display an interactive form with optional pre-fill |
+| `update_form` | Update fields in an existing rendered form |
 
 ### Example: render_form with pre-fill
 
@@ -81,6 +82,18 @@ src/
   "prefill": {
     "short_description": "Laptop won't turn on",
     "urgency": "2"
+  }
+}
+```
+
+Call `update_form` after `render_form` to update values without rendering a
+new iframe:
+
+```json
+{
+  "table": "incident",
+  "prefill": {
+    "urgency": "1"
   }
 }
 ```
