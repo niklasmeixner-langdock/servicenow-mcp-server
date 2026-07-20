@@ -321,7 +321,8 @@ function createMcpServer(
   );
 
   // Tool: Update values in the currently rendered form
-  server.registerTool(
+  registerAppTool(
+    server,
     "update_form",
     {
       title: "Update Form",
@@ -333,13 +334,22 @@ function createMcpServer(
           .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
           .describe("Key-value pairs to update in the existing form"),
       },
+      _meta: { ui: { resourceUri: formResourceUri } },
     },
     async ({ table, prefill }) => {
-      const updateData = { table, prefill };
-      return {
-        content: [{ type: "text", text: JSON.stringify(updateData) }],
-        structuredContent: updateData,
-      };
+      try {
+        const schema = await getFormFields(table, token, customHeaders);
+        const updateData = { ...schema, prefill };
+        return {
+          content: [{ type: "text", text: JSON.stringify(updateData) }],
+          structuredContent: updateData,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: String(error) }],
+          isError: true,
+        };
+      }
     },
   );
 
