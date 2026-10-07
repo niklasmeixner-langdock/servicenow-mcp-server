@@ -897,6 +897,7 @@ function createMcpServer(
         return {
           content: [{ type: "text", text: JSON.stringify(updateData) }],
           structuredContent: updateData,
+          _meta: { "mcpui.dev/ui-initial-render-data": updateData },
         };
       } catch (error) {
         return {
