@@ -1,0 +1,24 @@
+src/index.ts
+  s_1b322228885fd6::t_4ca6b9e3ece67c 1015,1026-1034,1039
+  s_1b322228885fd6::t_471e4404480d50 941-951,953-954,958-959,967,982
+  s_1b322228885fd6::t_fa546923c036d6 1199,1210
+  s_1b322228885fd6::t_1f380af04135e6 994-995,1000
+src/ui/ticket.html
+  s_1b322228885fd6::t_3f8be1f4749add 556,558-560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e7c236b02cf9bc590ac52d51d8f307d16a56dc6b",
+  "prompts": {},
+  "sessions": {
+    "s_1b322228885fd6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4f57506f-53d1-489b-8dc0-0a6ff5ae5139",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Niklas Meixner <niklasmeixner@MacBook-Pro-von-Niklas.local>"
+    }
+  }
+}
